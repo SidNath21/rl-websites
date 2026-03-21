@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Imitation Learning for Push-T</title>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+
+    <link href="./style.css" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
+        crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+
+    <header class="blog-header">
+        <div class="container">
+            <a href="http://sidnath21.github.io" class="blog-logo">sidnath21.github.io</a>
+            <nav>
+                <ul class="blog-nav">
+                    <li><a href="https://sidnath21.github.io/#projects">Projects</a></li>
+                    <li><a href="https://sidnath21.github.io/#about">About</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="blog-container">
+
+        <h1 class="blog-title">Imitation Learning for Push-T</h1>
+        <div class="blog-meta">
+            <span>Date: 2026</span> |
+            <span>Author: Siddharth Nath</span> |
+            <span>Email: sidnath21@gmail.com</span>
+        </div>
+
+        <div class="toc-container">
+            <div class="toc-toggle" id="toc-toggle">
+                <span class="chevron">▼</span>
+                <span>Table of Contents</span>
+            </div>
+            <div class="toc-content show" id="toc-content">
+                <ul class="toc-nav">
+                    <li>
+                        <a href="#overview">Overview</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#overview-push-t-environment">Push-T Environment</a></li>
+                            <li class="toc-sub-item"><a href="#overview-push-t-dataset">Push-T Dataset</a></li>
+                            <li class="toc-sub-item"><a href="#overview-action-chunking">Action Chunking</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#mse-policy">MSE Policy</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#mse-implementation">Implementation</a></li>
+                            <li class="toc-sub-item"><a href="#mse-intuition-and-motivation">Intuition and Motivation</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#flow-matching-policy">Flow Matching Policy</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#flow-matching-loss">Flow Matching Loss</a></li>
+                            <li class="toc-sub-item"><a href="#flow-going-with-the-flow">Going with the flow</a></li>
+                            <li class="toc-sub-item"><a href="#flow-matching-inference">Flow Matching Inference</a></li>
+                            <li class="toc-sub-item"><a href="#flow-implementation">Implementation</a></li>
+                            <li class="toc-sub-item"><a href="#flow-intuition-and-motivation">Intuition and Motivation</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#diffusion-policy">Diffusion Policy</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#diffusion-loss">Diffusion Loss</a></li>
+                            <li class="toc-sub-item"><a href="#diffusion-forward-noising">Forward Noising Process</a></li>
+                            <li class="toc-sub-item"><a href="#diffusion-iterative-denoising">Iterative Denoising Process</a></li>
+                            <li class="toc-sub-item">
+                                <a href="#diffusion-denoiser-architecture">Denoiser architecture</a>
+                                <ul class="toc-nav">
+                                    <li class="toc-sub-item"><a href="#diffusion-why-unet-vs-mlp">Why a 1D U-Net instead of an MLP?</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-time-embedding">Time embedding</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-state-conditioning">State conditioning</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-unet-trajectory">How the 1D U-Net processes the trajectory</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-skip-connections">Skip connections</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-conditioning-injection">How conditioning is injected</a></li>
+                                    <li class="toc-sub-item"><a href="#diffusion-output">Output</a></li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </li>
+                    <li><a href="#results">Results</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <section id="overview" class="blog-section">
+            <h1>Overview</h1>
+            <p class="lead">
+                This project explores three different policies for the
+                <a href="https://github.com/huggingface/gym-pusht/">Push-T manipulation task</a>. These policies are trained to predicts chunks of future actions to push the T-block into the target zone.
+            </p>
+            <figure class="overview-task-gif">
+                <img src="./pusht.gif" alt="Push-T task rollout">
+                <figcaption>
+                    <strong>Figure 1:</strong> Push-T task rollout. The agent controls the end-effector to push the T-block to the
+                    target pose.
+                </figcaption>
+            </figure>
+
+            <h2 id="overview-push-t-environment">Push-T Environment</h2>
+            <p>
+                The observation of the Push-T environment is a 5-dimensional state describing the position of the T-block and the agent: 
+
+                \(o_t = [x_t, y_t, x_a, y_a, \theta]\), where \( (x_t, y_t) \) are the coordinates of the T-block, \( (x_a, y_a) \) are the coordinates of the agent, and \(\theta\) is the angle of the T-block.
+                The action is a 2-dimensional vector representing the target position of the agent: \( (x_a, y_a) \). The goal is to push the T into the goal zone.
+            </p>
+
+            <h2 id="overview-push-t-dataset">Push-T Dataset</h2>
+            <p>
+                
+            </p>
+
+            <h2 id="overview-action-chunking">Action Chunking</h2>
+            <p>
+                In this project, I use action chunking to improve the performance of the policy by predicting a short horizon of actions at once. 
+                At time \( t \), the policy \( \pi_\theta(A_t | o_t) \) maps the current observation \( o_t \) to an action chunk \( A_t  \) = \( (a_t,a_{t+1},...,a_{t+K-1}) \) for some fixed chunk length \( K \). 
+                The chunk is executed open-loop: the environment receives \( a_t \) at time \( t \), then \( a_{t+1} \) at time \( t+1 \), and so on until \( a_{t+K-1} \). 
+                After the chunk finishes, the policy is queried again on the latest observation \( o_{t+K} \) to produce the next chunk.
+            </p>
+        </section>
+
+        <section id="mse-policy" class="blog-section">
+            <h1>MSE Policy</h1>
+            <p class="lead">
+                The <code>MSEPolicy</code> is the simplest policy that learns to predict a chunk of actions using the mean squared error (MSE) loss.
+                Given a dataset of paired observations and expert chunks \( (o_t, A_t) \), we fit \( \pi_\theta \) by minimizing the following loss
+            </p>
+       
+            <p class="text-center">
+                \(
+                \mathcal{L}_{\text{MSE}} = \frac{1}{B}\sum_{j=1}^B
+                \left\| A_t^{(j)} - \pi_\theta(o_t^{(j)}) \right\|_2^2
+                \)
+            </p>
+            <h2 id="mse-implementation">Implementation</h2>
+            <ul>
+                <li> I use a simple MLP with ReLU activations functions to output the predicted action chunks. </li>
+                <ul>
+                    <li> My implementatin uses three hidden layers: <code> (128, 128, 128) </code> </li>
+                </ul>
+                <li> The input is the state with shape <code>(B, state_dim)</code> and the output is the predicted action chunks with shape <code> (B, chunk_size, action_dim) </code>.</li>
+            </ul>
+
+            <!-- <div class="mt-4 mb-4">
+                <pre class="bg-light p-3 rounded" style="overflow-x: auto;"><code>class MSEPolicy(BasePolicy):
+                def __init__(self, state_dim, action_dim, chunk_size, hidden_dims=(128, 128)):
+                    super().__init__(state_dim, action_dim, chunk_size)
+                    self.layers = []
+                    input_dim = state_dim
+                    for hidden_dim in hidden_dims:
+                        self.layers.append(nn.Linear(input_dim, hidden_dim))
+                        self.layers.append(nn.ReLU())
+                        input_dim = hidden_dim
+                    self.layers.append(nn.Linear(input_dim, action_dim * chunk_size))
+                    self.network = nn.Sequential(*self.layers)
+
+                def compute_loss(self, state, action_chunk):
+                    sampled_actions = self.sample_actions(state)
+                    error = (action_chunk - sampled_actions) ** 2
+                    return error.sum(dim=(1, 2)).mean()
+
+                def sample_actions(self, state, *, num_steps=10):
+                    output = self.network(state)  # (B, action_dim * chunk_size)
+                    return output.view(-1, self.chunk_size, self.action_dim)</code></pre>
+            </div> -->
+            
+            <h2 id="mse-intuition-and-motivation">Intuition and Motivation</h2>
+            <p>
+                This is the simplest and strongest baseline for imitation learning. If the dataset covers the task well, direct
+                regression can learn a usable policy quickly with stable optimization and fast inference (single forward pass).
+                It also gives a clean reference point before implementing more complex policies like flow matching and diffusion.
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/mse_loss.png" class="card-img-top" alt="MSE policy training loss curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">MSE Policy – Training Loss</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/mse_reward.png" class="card-img-top" alt="MSE policy evaluation reward curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">MSE Policy – Evaluation Mean Reward</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/mse_ep0_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">MSE Policy – Rollout 1</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/mse_ep1_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">MSE Policy – Rollout 2</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="flow-matching-policy" class="blog-section">
+            <h1>Flow Matching Policy</h1>
+            <p class="lead">
+                MSE policies predict chunks in one shot, which can struggle to model complex, multimodal chunk distributions.
+                Flow matching addresses this by learning a conditional vector field that transports noise into realistic action
+                chunks. In other words, flow matching learns a velocity function that tells us how to move from a noisy action chunk to an expert action chunk at any given time \( \tau \in [0,1] \).
+            </p>
+
+
+            <h3 id="flow-matching-loss">Flow Matching Loss</h3>
+
+            <p>
+                Like diffusion, the goal of flow matching is to learn a function that transforms noise into a realistic action chunk.
+                This means we start with a randomly generated noisy action chunk  \( A_{t, 0} \sim \mathcal{N}(0, I) \) and want to end up with a clean, expert-like action chunk \( A_{t, 1} \).
+            </p>
+            <p>
+                Instead of trying to one shot predict the expert action chunk, we define a continuous path between the noisy and expert action chunks.
+                To do this, we first sample a random "flow matching timestep" \( \tau \sim \mathcal{U}(0, 1) \).
+                Then, we linearly interpolate between the noisy and expert action chunks using the flow matching timestep:
+                $$
+                    A_{t, \tau} = (1 - \tau) A_{t, 0} + \tau A_{t, 1}
+                $$
+                Now, we have a continuous path between the noisy and expert action chunks!
+
+            </p>
+
+            <h3 id="flow-going-with-the-flow">Going with the flow</h3>
+            <p>
+
+                Now we can train a Velocity Network \( v_{\theta} (o_t, A_{t, \tau}, \tau) \) to predict the velocity of movement along the path between the noisy and expert action chunks: \( v_{t, \tau} \)
+                <br> <br>
+                The true velocity of the path can be calcluated by differentiating the interpolation equation with respect to \( \tau \):
+                $$
+                    v_{t, \tau} = \frac{d}{d\tau} A_{t, \tau} = A_{t, 1} - A_{t, 0}
+                $$
+
+                With both the predicted velocity and the true velocity, we can use the following loss to train the Velocity Network:
+                $$
+                    \mathcal{L}_{\text{flow}} = \frac{1}{B}\sum_{j=1}^B \left\|v_\theta(o_t^{(j)}, A_{t, \tau}^{(j)}, \tau^{(j)}) - v_{t, \tau}^{(j)}\right\|_2^2
+                $$
+
+                With this loss, the velocity network will learn to predict the direction of movement at any flow matching timestep \( \tau \).
+            </p>
+
+            <h3 id="flow-matching-inference">Flow Matching Inference</h3>
+
+            <p>
+
+                At inference time, we start by sampling a random noisy action chunk \( A_0 \sim \mathcal{N}(0, I) \). 
+                Then, leveraging the trained velocity network, we can iteratively denoise the action chunk to get a cleaner, expert-like action chunk.
+
+                To get the desired state using the velocity network, we need to solve the ODE:
+
+                $$
+                    \frac{dA_{t, \tau}}{d\tau} = v_{\theta}(o_t, A_{t, \tau}, \tau)
+                $$
+
+                Solving this, we get:
+
+                $$
+                    dA_{t, \tau} = v_{\theta}(o_t, A_{t, \tau}, \tau) d\tau
+                $$
+
+                $$
+                    \int_{0}^{1} dA_{t, \tau} = \int_{0}^{1} v_{\theta}(o_t, A_{t, \tau}, \tau) d\tau 
+                    \Longrightarrow A_{t, 1} = A_{t, 0} + \int_{0}^{1} v_{\theta}(o_t, A_{t, \tau}, \tau) d\tau
+                $$
+
+                However, we can't solve this integral exactly because \( v_{\theta} \) depends on \( A_{t, \tau} \), which itself depends on the integral.
+
+                Solving with Euler's method, we get:
+                $$
+                    A_{t, \tau + \Delta\tau} = A_{t, \tau} + \Delta\tau \cdot v_{\theta}(o_t, A_{t, \tau}, \tau)
+                $$
+
+                Defining \( \Delta\tau = \frac{1}{N} \), we can repeat this process for \( N \) steps to get the desired action chunk \( A_{t, 1} \)
+
+            
+
+            </p>
+
+
+            <h3 id="flow-implementation">Implementation</h3>
+            <ul>
+                <li>The velocity network uses the same MLP architecture as the MSE policy. The input is the concatenated state, action chunk, and flow matching timestep with shape <code> (B, state_dim + (chunk_size * action_dim) + 1) </code></li>
+                <ul>
+                    <li> The state \( o_t \) is of shape <code> (B, state_dim) </code> </li>
+                    <li> The noisy action chunk \( A_{t, \tau} \) gets flattened to have shape <code> (B, chunk_size * action_dim) </code></li>
+                    <li> And the flow matching timestep \( \tau \) is a scalar <code> (B, 1) </code> </li>
+                </ul>
+                <li> The network uses three hidden layers: <code> (128, 128, 128) </code> </li>
+                <li> I use \( N = 20 \) flow matching steps to denoise the action chunk </li>
+            </ul>
+            <!-- <div class="mt-4 mb-4">
+                <pre class="bg-light p-3 rounded" style="overflow-x: auto;"><code>class FlowMatchingPolicy(BasePolicy):
+                def __init__(self, state_dim, action_dim, chunk_size, hidden_dims=(128, 128)):
+                    super().__init__(state_dim, action_dim, chunk_size)
+                    self.layers = []
+                    input_dim = state_dim + (chunk_size * action_dim) + 1
+                    for hidden_dim in hidden_dims:
+                        self.layers.append(nn.Linear(input_dim, hidden_dim))
+                        self.layers.append(nn.ReLU())
+                        input_dim = hidden_dim
+                    self.layers.append(nn.Linear(input_dim, action_dim * chunk_size))
+                    self.network = nn.Sequential(*self.layers)
+
+                def compute_loss(self, state, action_chunk):
+                    batch_size = state.shape[0]
+                    A_0 = torch.randn_like(action_chunk)
+                    t = torch.rand(batch_size, 1, 1, device=action_chunk.device)
+                    A_t = t * action_chunk + (1 - t) * A_0
+                    A_t_flat = A_t.view(batch_size, -1)
+                    t = t.view(batch_size, 1)
+                    combined_input = torch.cat([state, A_t_flat, t], dim=1)
+                    velocity = self.network(combined_input)
+                    velocity = velocity.view(batch_size, self.chunk_size, self.action_dim)
+                    denoised_action = action_chunk - A_0
+                    return (velocity - denoised_action).pow(2).sum(dim=(1, 2)).mean()
+
+                def sample_actions(self, state, num_steps=10):
+                    batch_size = state.shape[0]
+                    A_t = torch.randn(batch_size, self.chunk_size, self.action_dim, device=state.device)
+                    for t in torch.linspace(0, 1, num_steps):
+                        A_t_flat = A_t.view(batch_size, -1)
+                        t_tensor = torch.full((batch_size, 1), t, device=state.device)
+                        combined_input = torch.cat([state, A_t_flat, t_tensor], dim=1)
+                        velocity = self.network(combined_input)
+                        velocity = velocity.view(batch_size, self.chunk_size, self.action_dim)
+                        A_t = A_t + (1 / num_steps) * velocity
+                    return A_t</code></pre>
+            </div> -->
+                <h2 id="flow-intuition-and-motivation">Intuition and Motivation</h2>
+                <p>
+                    Instead of forcing one deterministic prediction, flow matching learns how to iteratively transform noise into a valid
+                    expert-like action chunk. This can model richer, multi-modal action distributions and often yields smoother chunk-level
+                    behavior, at the cost of slower sampling due to multiple denoising steps.
+                </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/flow_loss.png" class="card-img-top" alt="Flow matching policy training loss curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Flow Matching – Training Loss</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/flow_reward.png" class="card-img-top" alt="Flow matching policy evaluation reward curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Flow Matching – Evaluation Mean Reward</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/flow_ep0_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">Flow Matching – Rollout 1</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/flow_ep1_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">Flow Matching – Rollout 2</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </section>
+            
+            <section id="diffusion-policy" class="blog-section">
+                <h1>Diffusion Policy</h1>
+                <p class="lead">
+                    The Diffusion Policy method is similar to Flow Matching as they both learn to iteratively denoise a noisy action chunk to get a clean, expert-like action chunk. 
+                    While Flow Matching learns a velocity field that tells ushow to move towards the desired action chunk, Diffusion Policy learns to predict the noise of the action chunk at any given time \( t \).
+                </p>
+                <h2 id="diffusion-loss">Diffusion Loss</h2>
+
+                <p>
+                    Like flow matching, diffusion aims to transform a noisy action chunk into a clean, expert-like action chunk.
+                    However, instead of defining a direct path between noise and data, diffusion defines a <b>forward noising process</b> that gradually corrupts the expert action chunk over multiple timesteps.
+                </p>
+
+                <h4 id="diffusion-forward-noising">Forward Noising Process</h4>
+                <p>
+
+                    The forward noising process is a controlled way to gradually add noise to a clean action chunk until it resembles pure noise.
+                    To do this in a controlled way, we first define a linear noise schedule using \( T \) denoising steps where:
+                    <ul>
+                        <li> \( \beta_t \) defines how much noise is added at timestep \( t \) </li>
+                        <li> \( \alpha_t = 1 - \beta_t \) defines how much of the original signal remains at timestep \( t \) </li>
+                        <li> \( \bar{\alpha}_t = \prod_{i=1}^t \alpha_i \) defines the cumulative product of the alphas. In other words, it represents how much of the original clean action chunk remains after \( t \) noising steps </li>
+                    </ul>
+
+                    With this noise schedule defined, we can start with a clean action chunk \( A_{t, 0} \) and progressively add Gaussian noise over \( T \) steps using the forward noising process:
+                    $$
+                        A_{t, \tau} = \sqrt{\bar{\alpha}_\tau} \, A_{t, 0} + \sqrt{1 - \bar{\alpha}_\tau} \, \epsilon, \quad \epsilon \sim \mathcal{N}(0, I)
+                    $$
+
+                    As \( \tau \) increases, the resulting action chunk \( A_{t, \tau} \) resembles more and more like pure noise.
+                </p>
+
+                <p>
+                    During training, we sample a random timestep \( \tau \sim \{0, \dots, T-1\} \), generate a noisy action chunk \( A_{t, \tau} \), and train a network
+                    \( \epsilon_{\theta}(o_t, A_{t, \tau}, \tau) \) to predict the noise that was added:
+                    $$
+                        \mathcal{L}_{\text{diffusion}} = \frac{1}{B}\sum_{j=1}^B \left\| \epsilon_\theta(o_t^{(j)}, A_{t, \tau}^{(j)}, \tau^{(j)}) - \epsilon^{(j)} \right\|_2^2
+                    $$
+                </p>
+
+                <p>
+                    Instead of predicting the clean action directly, the model learns to estimate the noise at any timestep.
+                    This allows it to iteratively remove noise during inference.
+                </p>
+
+
+                <h3 id="diffusion-iterative-denoising">Iterative Denoising Process</h3>
+
+                <p>
+                    At inference time, we begin with pure noise \( A_{t, T} \sim \mathcal{N}(0, I) \) and use the learned noise prediction network \( \epsilon_\theta \) to iteratively remove noise:
+
+                </p>
+
+                <p>
+                    Rearanging the forward noising process equation, we get:
+                    $$
+                        A_{t, 0} = \frac{A_{t, \tau} - \sqrt{1 - \bar{\alpha}_\tau} \, \epsilon}{\sqrt{\bar{\alpha}_\tau}}
+                    $$
+
+                    Replacing the true noise \( \epsilon \) with the predicted noise \( \epsilon_\theta(o_t, A_{t, \tau}, \tau) \), we get:
+                    $$
+                        \hat{A}_{t, 0} = \frac{A_{t, \tau} - \sqrt{1 - \bar{\alpha}_\tau} \, \epsilon_\theta(o_t, A_{t, \tau}, \tau)}{\sqrt{\bar{\alpha}_\tau}}
+                    $$
+                </p>
+                <p>
+                    The estimate \( \hat{A}_{t,0} \) is only an approximation of the true clean action. 
+                    Because the noise predictor \( \epsilon_\theta \) is imperfect, directly jumping to 
+                    \( \hat{A}_{t,0} \) would produce unstable and low-quality samples—especially at large 
+                    timesteps \( \tau \), where the input is highly noisy.
+                </p>
+                
+                <p>
+                    Instead, diffusion models perform <b>iterative denoising</b>, taking small steps from 
+                    \( A_{t,\tau} \) to \( A_{t,\tau-1} \). The reverse process mean is:
+                    $$
+                        \mu_\tau = \frac{1}{\sqrt{\alpha_\tau}} \left(
+                        A_{t,\tau} - \frac{\beta_\tau}{\sqrt{1 - \bar{\alpha}_\tau}} 
+                        \, \epsilon_\theta(o_t, A_{t,\tau}, \tau)
+                        \right)
+                    $$
+                </p>
+                
+                <p>
+                    We then sample the next (slightly less noisy) action:
+                    $$
+                        A_{t,\tau-1} =
+                        \begin{cases}
+                            \mu_\tau + \sqrt{\beta_\tau}\, z, & \tau > 0,\; z \sim \mathcal{N}(0, I) \\
+                            \mu_0, & \tau = 0
+                        \end{cases}
+                    $$
+                </p>
+                
+                <p>
+                    Repeating this process from \( \tau = T \) down to \( \tau = 0 \) gradually removes noise, 
+                    yielding the final clean action \( A_{t,0} \).
+                </p>
+
+
+                
+            <!--  
+            <div class="mt-4 mb-4">
+                <pre class="bg-light p-3 rounded" style="overflow-x: auto;"><code>class DiffusionPolicy(BasePolicy):
+                def __init__(self, state_dim, action_dim, chunk_size, hidden_dims=(128, 128),
+                            diffusion_steps=100, beta_start=1e-4, beta_end=2e-2,
+                            time_embed_dim=64, x0_clip=3.0):
+                    super().__init__(state_dim, action_dim, chunk_size)
+                    self.diffusion_steps = diffusion_steps
+                    self.x0_clip = x0_clip
+                    base_channels = hidden_dims[0] if hidden_dims else 128
+                    self.unet = ActionUNet1D(action_dim=action_dim, state_dim=state_dim,
+                        base_channels=base_channels, time_embed_dim=time_embed_dim,
+                        cond_dim=max(base_channels * 2, 128))
+                    betas = torch.linspace(beta_start, beta_end, diffusion_steps)
+                    alphas = 1.0 - betas
+                    alpha_cumprod = torch.cumprod(alphas, dim=0)
+                    self.register_buffer("betas", betas)
+                    self.register_buffer("alphas", alphas)
+                    self.register_buffer("alpha_cumprod", alpha_cumprod)
+
+                def _predict_noise(self, state, noisy_action, t_indices):
+                    t_normalized = t_indices.float() / max(self.diffusion_steps - 1, 1)
+                    return self.unet(noisy_action, state, t_normalized)
+
+                def compute_loss(self, state, action_chunk):
+                    batch_size = state.shape[0]
+                    t_indices = torch.randint(0, self.diffusion_steps, (batch_size,), device=action_chunk.device)
+                    noise = torch.randn_like(action_chunk)
+                    alpha_bar_t = self.alpha_cumprod[t_indices].view(batch_size, 1, 1)
+                    noisy_action = alpha_bar_t.sqrt() * action_chunk + (1.0 - alpha_bar_t).sqrt() * noise
+                    estimated_noise = self._predict_noise(state, noisy_action, t_indices)
+                    return F.mse_loss(estimated_noise, noise)
+
+                def sample_actions(self, state, *, num_steps=25):
+                    batch_size = state.shape[0]
+                    x_t = torch.randn(batch_size, self.chunk_size, self.action_dim, device=state.device)
+                    if num_steps >= self.diffusion_steps:
+                        for t in range(self.diffusion_steps - 1, -1, -1):
+                            t_batch = torch.full((batch_size,), t, dtype=torch.long, device=state.device)
+                            pred_noise = self._predict_noise(state, x_t, t_batch)
+                            alpha_t = self.alphas[t].view(1, 1, 1)
+                            alpha_bar_t = self.alpha_cumprod[t].view(1, 1, 1)
+                            beta_t = self.betas[t].view(1, 1, 1)
+                            x0_pred = (x_t - (1.0 - alpha_bar_t).sqrt() * pred_noise) / alpha_bar_t.sqrt()
+                            x0_pred = x0_pred.clamp(-self.x0_clip, self.x0_clip)
+                            mean = (1.0 / alpha_t.sqrt()) * (x_t - (beta_t / (1.0 - alpha_bar_t).sqrt()) * pred_noise)
+                            x_t = mean + beta_t.sqrt() * torch.randn_like(x_t) if t > 0 else x0_pred
+                    else:
+                        timesteps = torch.linspace(self.diffusion_steps - 1, 0, max(num_steps, 1), device=state.device).long().unique_consecutive()
+                        if timesteps[-1].item() != 0:
+                            timesteps = torch.cat([timesteps, torch.zeros(1, dtype=torch.long, device=state.device)])
+                        for i, t in enumerate(timesteps):
+                            t_batch = torch.full((batch_size,), t, dtype=torch.long, device=state.device)
+                            pred_noise = self._predict_noise(state, x_t, t_batch)
+                            alpha_bar_t = self.alpha_cumprod[t].view(1, 1, 1)
+                            x0_pred = (x_t - (1.0 - alpha_bar_t).sqrt() * pred_noise) / alpha_bar_t.sqrt()
+                            x0_pred = x0_pred.clamp(-self.x0_clip, self.x0_clip)
+                            if i == len(timesteps) - 1:
+                                x_t = x0_pred
+                                break
+                            alpha_bar_next = self.alpha_cumprod[timesteps[i + 1]].view(1, 1, 1)
+                            x_t = alpha_bar_next.sqrt() * x0_pred + (1.0 - alpha_bar_next).sqrt() * pred_noise
+                    return x_t</code></pre>
+            </div>
+            -->
+            <h2 id="diffusion-denoiser-architecture">Denoiser architecture</h2>
+            <p>
+                The denoiser is the core of the diffusion policy. It is given a noisy action sequence \( A_{t,\tau} \), the current state \( o_t \), 
+                and a timestep \( \tau \) and predicts the noise that was added.
+            </p>
+
+            <p>
+                Since an action chunk is really a short <strong>trajectory</strong>, we want the model to understand how 
+                neighboring timesteps relate (smooth motion, consistent direction, etc.). That’s why we use a 
+                <strong>1D U-Net</strong> instead of something like a simple MLP.
+            </p>
+
+            <h3 id="diffusion-why-unet-vs-mlp">Why a 1D U-Net instead of an MLP?</h3>
+            <p>
+                The flow-matching baseline flattens everything and feeds 
+                <code>[state, chunk, time]</code> into an MLP. That treats the chunk like a big unordered vector.
+            </p>
+
+            <p>
+                But trajectories aren’t unordered since they are sequences of actions that are correlated by time. What happens at timestep \( t \) is closely related 
+                to \( t+1 \), much more than to far-away steps.
+            </p>
+
+            <p>
+                A 1D U-Net takes this into consideration:
+            </p>
+            <ul>
+                <li>Convolutions look at <strong>local neighborhoods</strong> in time</li>
+                <li>Downsampling lets the model see <strong>long-range structure</strong></li>
+                <li>The decoder brings things back to per-timestep detail</li>
+            </ul>
+
+            <h3 id="diffusion-time-embedding">Time embedding (how noisy are we?)</h3>
+            <p>
+                The timestep \( \tau \) tells us how corrupted the input is. Early on, the input is almost pure noise. Later, it’s almost clean.
+            </p>
+
+            <p>
+                We don’t feed \( \tau \) directly. Instead, we pass it through a 
+                <strong>sinusoidal embedding</strong> (like Transformers use for positions), which turns a single number 
+                into a richer vector of sine/cosine features. Then an MLP maps that into a usable conditioning vector.
+                This gives the model a smooth way to understand “where we are” in the denoising process.
+            </p>
+
+            <h3 id="diffusion-state-conditioning">State conditioning</h3>
+            <p>
+                The state \( o_t \) is also passed through an MLP. We then add the two together:
+            </p>
+
+            <p style="text-align: left;">
+            $$
+            \text{cond} = \text{MLP}_{time}(\tau) + \text{MLP}_{state}(o_t)
+            $$
+            </p>
+
+            <p>
+                So the model always knows:
+            </p>
+            <ul>
+                <li>what the environment looks like</li>
+                <li>how much noise is left</li>
+            </ul>
+
+            <p>
+                This conditioning vector is global—it applies to the whole trajectory as it passed through the denoiser, not individual timesteps.
+            </p>
+
+            <h3 id="diffusion-unet-trajectory">How the 1D U-Net processes the trajectory</h3>
+            <p>
+                The input chunk starts as shape <code>(batch, chunk_size, action_dim)</code>. We transpose it to 
+                <code>(batch, action_dim, chunk_size)</code> so convolutions run over time.
+            </p>
+
+            <p>
+                Then the model follows a classic U-Net structure:
+            </p>
+
+            <ul>
+                <li><strong>Input projection:</strong> map actions into a wider feature space</li>
+                <li><strong>Downsampling:</strong> shrink time resolution, increase channels (see more context)</li>
+                <li><strong>Bottleneck:</strong> operate on a compressed view of the whole trajectory</li>
+                <li><strong>Upsampling:</strong> bring back the original resolution</li>
+                <li><strong>Fusion:</strong> combine global and local information</li>
+                <li><strong>Output:</strong> predict noise for each timestep</li>
+            </ul>
+
+            <h3 id="diffusion-skip-connections">Skip connections (why they matter)</h3>
+            <p>
+                Early in the network, we save a high-resolution version of the features. Later, after downsampling 
+                and upsampling, we concatenate it back in. We do this because downsampling loses detail.
+            </p>
+
+            <p>
+                The bottleneck understands the <strong>overall plan</strong>, but the skip connection remembers 
+                <strong>exact timing and local structure</strong>. Combining both helps the model's performance
+            </p>
+
+            <h3 id="diffusion-conditioning-injection">How conditioning is injected</h3>
+            <p>
+                Instead of concatenating the conditioning vector at every timestep (which would increase the input size 
+                and duplicate the same information everywhere), we take a lighter approach: we project the conditioning 
+                vector to match the number of channels and <strong>add it as a bias</strong> to the feature maps.
+            </p>
+
+            <p>
+                The combined conditioning vector (state + timestep) is passed through small linear layers 
+                to produce vectors of size <code>c1</code> or <code>c2</code> (depending on the stage of the network). 
+                These are then unsqueezed and broadcast across the time dimension:
+            </p>
+
+            <p style="text-align: left;">
+            $$
+            x = \text{Conv}(x) + \text{cond_projection}
+            $$
+            </p>
+
+            <p>
+                Since <code>x</code> has shape <code>(B, C, T)</code> and the projected conditioning has shape 
+                <code>(B, C, 1)</code>, it gets copied across all timesteps. So every position in the sequence 
+                receives the same conditioning signal.
+            </p>
+
+            <p>
+                This happens at multiple points in the network (early layers, after downsampling, and during fusion), 
+                so the conditioning can influence both local features and more global representations.
+            </p>
+
+            <ul>
+                <li>The <strong>state</strong> tells the model what kind of action sequence makes sense in the current scene</li>
+                <li>The <strong>timestep</strong> tells it how noisy the input is (should we make a big correction or a small tweak?)</li>
+            </ul>
+
+            <p>
+                So the model can reuse the same filters while behaving very differently depending on the situation—
+                for example, making large corrections early in denoising and small refinements near the end.
+            </p>
+
+            <h3 id="diffusion-output">Output</h3>
+            <p>
+                The final output has the same shape as the input chunk and represents the predicted noise:
+            </p>
+
+            <p style="text-align: left;">
+            $$
+            \epsilon_\theta(o_t, A_{t,\tau}, \tau)
+            $$
+            </p>
+
+            <p>
+                During training, we compare this to the true noise. During inference, we use it to gradually 
+                clean up the trajectory step by step.
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/diffusion_loss.png" class="card-img-top" alt="Diffusion policy training loss curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Diffusion Policy – Training Loss</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/diffusion_reward.png" class="card-img-top" alt="Diffusion policy evaluation reward curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Diffusion Policy – Evaluation Mean Reward</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/diffusion_ep0_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">Diffusion Policy – Rollout 1</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <video class="card-img-top" autoplay="autoplay" loop="loop" controls muted defaultMuted playsinline preload="auto">
+                            <source src="./videos/diffusion_ep1_130000.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="card-body">
+                            <p class="card-text mb-0">Diffusion Policy – Rollout 2</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </section>
+
+        <section id="results" class="blog-section">
+            <h1>Results</h1>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/combined_loss.png" class="card-img-top" alt="Training Loss Curves">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Training Loss Curves (MSE vs Flow)</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-12">
+                    <div class="card">
+                        <img src="./images/combined_reward.png" class="card-img-top" alt="Evaluation Reward">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Evaluation Mean Reward</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Method</th>
+                            <th>Chunk Size</th>
+                            <th>Final Mean Reward</th>
+                            <th>Denoising Steps</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>MSE Policy</td>
+                            <td>8</td>
+                            <td>0.65</td>
+                            <td>N/A</td>
+                        </tr>
+                        <tr>
+                            <td>Flow Matching</td>
+                            <td>8</td>
+                            <td>0.86</td>
+                            <td>20</td>
+                        </tr>
+                        <tr>
+                            <td>Diffusion Policy</td>
+                            <td>8</td>
+                            <td>0.88</td>
+                            <td>100</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const tocToggle = document.getElementById('toc-toggle');
+            const tocContent = document.getElementById('toc-content');
+
+            if (tocToggle && tocContent) {
+                tocToggle.addEventListener('click', function() {
+                    tocContent.classList.toggle('show');
+                    this.classList.toggle('collapsed');
+                });
+            }
+
+            const tocLinks = Array.from(document.querySelectorAll('.toc-nav a[href^="#"]'));
+            const tocTargets = tocLinks
+                .map((link) => {
+                    const id = link.getAttribute('href').slice(1);
+                    const element = document.getElementById(id);
+                    return element ? { link, element } : null;
+                })
+                .filter(Boolean);
+
+            function updateActiveTocLink() {
+                if (!tocTargets.length) return;
+
+                const scrollPosition = window.scrollY + 140;
+                let active = tocTargets[0];
+
+                tocTargets.forEach((entry) => {
+                    if (entry.element.offsetTop <= scrollPosition) {
+                        active = entry;
+                    }
+                });
+
+                tocLinks.forEach((link) => link.classList.remove('toc-active'));
+                active.link.classList.add('toc-active');
+            }
+
+            window.addEventListener('scroll', updateActiveTocLink, { passive: true });
+            window.addEventListener('resize', updateActiveTocLink);
+            updateActiveTocLink();
+
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+
+</body>
+
+</html>
