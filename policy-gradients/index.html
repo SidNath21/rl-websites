@@ -302,7 +302,11 @@
 
             <h2 id="overview-architecture">Architecture</h2>
             <p>
-                The overall system follows the standard on-policy policy-gradient loop. Each training iteration:
+                The overall system follows the standard
+                <span class="term-highlight" tabindex="0" data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-trigger="hover focus"
+                    title="On-policy methods learn from data collected by the current policy: after each update, old trajectories are discarded and new ones are sampled. Off-policy methods (e.g. DQN, SAC) can reuse transitions from older policies or a replay buffer, so the data distribution does not need to match the policy being trained.">on-policy</span>
+                policy-gradient loop. Each training iteration:
                 (1) collect trajectories by running the current policy in the environment,
                 (2) compute return or advantage targets from the collected rewards,
                 (3) update the policy (and optionally a value network) on the batch of \((s_t, a_t)\) transitions.
