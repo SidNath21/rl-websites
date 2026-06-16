@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>LLM Reinforcement Learning — Berkeley Deep RL HW4</title>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+        window.MathJax = {
+            loader: { load: ['[tex]/color'] },
+            tex: {
+                packages: { '[+]': ['color'] }
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+
+    <link href="./style.css" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
+        crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+
+    <header class="blog-header">
+        <div class="container">
+            <a href="http://sidnath21.github.io" class="blog-logo">sidnath21.github.io</a>
+            <nav>
+                <ul class="blog-nav">
+                    <li><a href="https://sidnath21.github.io/#projects">Projects</a></li>
+                    <li><a href="https://sidnath21.github.io/#about">About</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="blog-container">
+
+        <h1 class="blog-title">LLM Reinforcement Learning</h1>
+        <div class="blog-meta">
+            <span>Date: May 2026</span> |
+            <span>Author: Siddharth Nath</span> |
+            <span>Email: sidnath21@gmail.com</span>
+        </div>
+
+        <div class="toc-container">
+            <div class="toc-toggle" id="toc-toggle">
+                <span class="chevron">▼</span>
+                <span>Table of Contents</span>
+            </div>
+            <div class="toc-content show" id="toc-content">
+                <ul class="toc-nav">
+                    <li>
+                        <a href="#overview">Overview</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#overview-objective">Objective</a></li>
+                            <li class="toc-sub-item"><a href="#overview-architecture">Architecture</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#theory">Theory</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#theory-setup">Setup and notation</a></li>
+                            <li class="toc-sub-item"><a href="#theory-advantages">Group-relative advantages</a></li>
+                            <li class="toc-sub-item"><a href="#theory-kl">Approximate KL</a></li>
+                            <li class="toc-sub-item"><a href="#theory-reinforce">GR-REINFORCE</a></li>
+                            <li class="toc-sub-item"><a href="#theory-grpo">GRPO</a></li>
+                            <li class="toc-sub-item"><a href="#theory-compare">GR-REINFORCE vs GRPO</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#implementation">Implementation</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#implementation-logprobs">Log-probs and masking</a></li>
+
+                            <li class="toc-sub-item"><a href="#implementation-algos">GR-REINFORCE and GRPO</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#tasks">Tasks and rewards</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#tasks-format-copy">Format copy</a></li>
+                            <li class="toc-sub-item"><a href="#tasks-math-hard">Math hard</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#training-results">Training results</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#training-format-grpo">Format copy + GRPO</a></li>
+                            <li class="toc-sub-item"><a href="#training-format-reinforce">Format copy + GR-REINFORCE</a></li>
+                            <li class="toc-sub-item"><a href="#training-math-reinforce">Math hard + GR-REINFORCE</a></li>
+                            <li class="toc-sub-item"><a href="#training-math-grpo">Math hard + GRPO</a></li>
+                            <li class="toc-sub-item"><a href="#training-math-generations">Math hard generations</a></li>
+                        </ul>
+                    </li>
+                    
+                </ul>
+            </div>
+        </div>
+
+        <section id="overview" class="blog-section">
+            <h1>Overview</h1>
+            <p class="lead">
+                This project implements REINFORCE and GRPO, two algorithms used for <strong>LLM reinforcement-learning post-training</strong>. 
+                These algorithms are use to fine-tune a base language model with verifiable outcome rewards, and are compared on two tasks: a fast <code>format_copy</code> sanity check and the harder <code>math_hard</code> benchmark.
+                Training runs on Modal with an H100 GPU; metrics and sample generations are logged to WandB.
+            </p>
+
+            <h2 id="overview-objective">Objective</h2>
+            <p>
+                Modern LLM post-training often uses reinforcement learning on verifiable rewards: the model samples
+                completions, a task-specific scorer returns a scalar reward, and the policy is updated to increase
+                reward while staying close to a frozen reference model. For each prompt \(x\), we sample a
+                <em>group</em> of \(G\) completions \(y_{i,1}, \ldots, y_{i,G}\), normalize rewards within each group
+                to form advantages, and apply either a single-pass sequence-level REINFORCE update (GR-REINFORCE) or
+                a clipped per-token surrogate with multiple PPO epochs (GRPO).
+            </p>
+
+            <h2 id="overview-architecture">Architecture</h2>
+            <p>
+                The training loop follows the standard on-policy LLM-RL pattern. Each iteration:
+            </p>
+            <ol>
+                <li><strong>Sample prompts</strong> from the task (<code>format_copy</code> or <code>math_hard</code>).</li>
+                <li><strong>Roll out</strong> <code>group_size</code> completions per prompt with the current LoRA-adapted policy.</li>
+                <li><strong>Score</strong> each completion with verifiable reward functions (XML/boxed parsing).</li>
+                <li><strong>Normalize</strong> rewards into group-relative advantages (and optionally global z-score).</li>
+                <li><strong>Update</strong> with GR-REINFORCE (one pass) or GRPO (<code>ppo_epochs</code> passes with clipping).</li>
+            </ol>
+            <p>
+                <strong>Policy.</strong> A base causal LM (Qwen2.5-0.5B-Instruct) with LoRA adapters is the trainable
+                policy \(\pi_\theta\). A frozen copy of the base weights serves as \(\pi_{\mathrm{ref}}\) for KL
+                regularization. Completions are tokenized with the chat template; only generated completion tokens
+                contribute to the policy loss.
+            </p>
+            <p>
+                <strong>Rollout batch.</strong> A <code>RolloutBatch</code> stores padded sequences, per-token
+                completion masks, cached behavior-policy log-probs (<code>old_logprobs</code> for GRPO),
+                reference log-probs, scalar rewards, and advantages. 
+            </p>
+
+            <p class="code-caption"><code>RolloutBatch</code> (flattened over batch × group)</p>
+            <pre class="code-snippet"><code>@dataclass
+class RolloutBatch:
+    input_ids: torch.Tensor          # [N, L]
+    attention_mask: torch.Tensor     # [N, L]
+    completion_mask: torch.Tensor    # [N, L-1] — completion tokens only
+    old_logprobs: torch.Tensor       # [N, L-1]
+    ref_logprobs: torch.Tensor       # [N, L-1]
+    rewards: torch.Tensor            # [N]
+    advantages: torch.Tensor         # [N]</code></pre>
+        </section>
+
+        <section id="theory" class="blog-section">
+            <h1>Theory</h1>
+
+            <h2 id="theory-setup">Setup and notation</h2>
+            <p>
+                Let \(x\) denote a prompt and \(y = (y_1, \ldots, y_T)\) a sampled completion. The trainable policy is
+                \(\pi_\theta\), the frozen reference is \(\pi_{\mathrm{ref}}\), and \(r(x, y)\) is a verifiable scalar
+                reward computed from the final completion text. For each prompt \(x_i\), we sample a group of
+                \(G\) completions; group-based normalization is used in both algorithms.
+            </p>
+
+            <h2 id="theory-advantages">Group-relative advantages</h2>
+            <p>
+                In classic RL, an advantage quantifies how much better an action was than expected:
+                \(A(s, a) = Q(s, a) - V(s)\). For LLM post-training we do not have a learned value function;
+                instead, for each prompt \(x_i\) we sample a <em>group</em> of \(G\) completions and compare
+                their verifiable rewards under the same prompt.
+            </p>
+            <p>
+                Let rewards of the \(G\) sampled completions be \(r_{i,1}, \ldots, r_{i,G}\). Group-based
+                normalization defines
+            </p>
+            $$
+            A_{i,j} = \frac{r_{i,j} - \mu_i}{\sigma_i + \varepsilon}, \quad
+            \mu_i = \frac{1}{G}\sum_{j=1}^{G} r_{i,j}, \quad
+            \sigma_i = \sqrt{\frac{1}{G}\sum_{j=1}^{G}(r_{i,j} - \mu_i)^2}.
+            $$
+            <p>
+                Each completion gets one scalar advantage: positive when it outperforms other samples from the same
+                prompt, negative when it underperforms. We use \(A_i\) in the policy loss rather than raw reward
+                \(r_i\) directly, because raw rewards have high variance across prompts. Optional global z-scoring
+                across the full batch (<code>maybe_normalize_advantages</code>) can additionally stabilize updates.
+            </p>
+
+            <h2 id="theory-kl">Approximate KL regularization</h2>
+            <p>
+                Both GR-REINFORCE and GRPO regularize the trainable policy toward a frozen reference policy
+                \(\pi_{\mathrm{ref}}\) using KL divergence, so the trained distribution does not drift too far from
+                the base model. At a decoding context \(s\), let \(a\) be a sampled next token and define
+                \(\Delta(a) = \log \pi_{\mathrm{ref}}(a \mid s) - \log \pi_\theta(a \mid s)\). The exact
+                token-level KL is
+            </p>
+            $$
+            \mathrm{KL}(\pi_\theta \| \pi_{\mathrm{ref}}) =
+            \mathbb{E}_{a \sim \pi_\theta}\bigl[\log \pi_\theta(a \mid s) - \log \pi_{\mathrm{ref}}(a \mid s)\bigr].
+            $$
+            <p>
+                This is intractable at LLM scale because it requires summing over the full vocabulary at every
+                position. Instead, we use a sampled-token estimator averaged over completion tokens:
+            </p>
+            $$
+            \hat{k}(a) = e^{\Delta(a)} - \Delta(a) - 1.
+            $$
+            <p>
+                When \(a \sim \pi_\theta\), the expectation of the exponential term collapses to one:
+            </p>
+            $$
+            \mathbb{E}[e^{\Delta(a)}] =
+            \sum_a \pi_\theta(a \mid s)\,\frac{\pi_{\mathrm{ref}}(a \mid s)}{\pi_\theta(a \mid s)}
+            = \sum_a \pi_{\mathrm{ref}}(a \mid s) = 1.
+            $$
+            <p>
+                Therefore \(\mathbb{E}[\hat{k}(a)] = -\mathbb{E}[\Delta(a)] =
+                \mathrm{KL}(\pi_\theta \| \pi_{\mathrm{ref}})\): an unbiased sampled-token estimator of the KL.
+                Unlike the simpler proxy \(-\Delta(a)\), individual values of \(\hat{k}(a)\) are always
+                \(\geq 0\) (with equality at agreement), so each token contributes a nonnegative divergence signal.
+                The implementation clamps \(\Delta\) to \([-20, 20]\) before exponentiating for numerical stability.
+            </p>
+
+            <h2 id="theory-reinforce">GR-REINFORCE objective</h2>
+            <p>
+                GR-REINFORCE is an on-policy algorithm (see REINFORCE). It uses the group-normalized scalar
+                advantage \(A_i\) per completion. For completion \(y_i = (y_{i,1}, \ldots, y_{i,T_i})\), define
+                the sequence-average completion log-probability:
+            </p>
+            $$
+            \bar{\ell}_i(\theta) = \frac{1}{T_i}\sum_{t=1}^{T_i} \log \pi_\theta(y_{i,t} \mid x_i, y_{i,\lt t})
+            $$
+            <p>
+                Averaging token log-probabilities within each completion avoids giving longer completions more
+                weight purely because they contain more tokens. The policy-gradient term is
+            </p>
+            $$
+            L_{\mathrm{pg}}^{\mathrm{GR\text{-}REINFORCE}}(\theta) =
+            -\frac{1}{N}\sum_{i=1}^{N} A_i \cdot \bar{\ell}_i(\theta).
+            $$
+            <p>
+                The advantage \(A_i\) tells us how much better or worse completion \(y_i\) was compared to the
+                other completions sampled for the same prompt. The full loss adds KL regularization with coefficient
+                \(\beta\) (configured as <code>kl_coef</code> in code):
+            </p>
+            $$
+            L^{\mathrm{GR\text{-}REINFORCE}}(\theta) =
+            L_{\mathrm{pg}}^{\mathrm{GR\text{-}REINFORCE}}(\theta) + \beta\,\widehat{\mathrm{KL}}(\pi_\theta \| \pi_{\mathrm{ref}}).
+            $$
+            <p>
+                This implementation is <strong>single-pass on-policy</strong>: each collected rollout batch is used
+                for exactly one round of optimizer steps (modulo minibatching and gradient accumulation), with no PPO
+                importance ratio or multiple epochs.
+            </p>
+
+            <h2 id="theory-grpo">GRPO objective</h2>
+            <p>
+                Group Relative Policy Optimization reuses a sampled rollout for multiple policy updates with
+                PPO-style clipping. Let \(\pi_{\mathrm{old}}\) be the behavior policy that generated the rollout.
+                For token \(t\) of completion \(i\), the importance ratio is
+            </p>
+            $$
+            \rho_{i,t}(\theta) =
+            \frac{\pi_\theta(y_{i,t} \mid x_i, y_{i,\lt t})}{\pi_{\mathrm{old}}(y_{i,t} \mid x_i, y_{i,\lt t})}.
+            $$
+            <p>
+                With REINFORCE we assume data comes from the current policy. GRPO resumes samples across optimizer
+                steps; after updating the policy, we train on data collected from a slightly different policy, so the
+                ratio \(\rho_{i,t}\) corrects for this off-policy mismatch. Without clipping, large ratio values can
+                cause unstable gradient updates. The clipped token objective is
+            </p>
+            $$
+            \min\bigl(\rho_{i,t}(\theta)\, A_i,\;
+            \mathrm{clip}(\rho_{i,t}(\theta), 1-\epsilon, 1+\epsilon)\, A_i\bigr).
+            $$
+            <p>
+                Averaging over completion tokens within each sequence, then over the batch:
+            </p>
+            $$
+            L_{\mathrm{pg}}^{\mathrm{GRPO}}(\theta) =
+            -\frac{1}{N}\sum_{i=1}^{N}\frac{1}{T_i}\sum_{t=1}^{T_i}
+            \min\bigl(\rho_{i,t}(\theta)\, A_i,\;
+            \mathrm{clip}(\rho_{i,t}(\theta), 1-\epsilon, 1+\epsilon)\, A_i\bigr).
+            $$
+            <p>
+                The final GRPO loss adds the same KL penalty:
+            </p>
+            $$
+            L^{\mathrm{GRPO}}(\theta) =
+            L_{\mathrm{pg}}^{\mathrm{GRPO}}(\theta) + \beta\,\widehat{\mathrm{KL}}(\pi_\theta \| \pi_{\mathrm{ref}}).
+            $$
+            <p>
+                GRPO runs <code>ppo_epochs</code> passes over the same rollout data, enabling
+                <strong>controlled sample reuse</strong> unlike strictly on-policy GR-REINFORCE.
+            </p>
+
+            <h2 id="theory-compare">GR-REINFORCE vs GRPO</h2>
+            <blockquote class="comparison-note">
+                <strong>On-policy updates vs controlled sample reuse.</strong> With GR-REINFORCE, each rollout batch
+                is used for exactly one optimizer step. In GRPO, the same rollout batch is reused for two PPO epochs.
+                For the same number of sampled prompts, GRPO can make more optimization progress per collected rollout
+                batch.
+            </blockquote>
+        </section>
+
+        <section id="implementation" class="blog-section">
+            <h1>Implementation</h1>
+
+            <h2 id="implementation-logprobs">Log-probs and masking</h2>
+
+            <p class="code-caption">Per-token log-probs</p>
+            <pre class="code-snippet"><code>def compute_per_token_logprobs(model, input_ids, attention_mask, *, enable_grad=True):
+    out = model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
+    logits = out.logits[:, :-1, :]   # [B, L-1, V]
+    targets = input_ids[:, 1:]
+    B, L_minus_1, V = logits.shape
+    nll = F.cross_entropy(
+        logits.reshape(B * L_minus_1, V),
+        targets.reshape(B * L_minus_1),
+        reduction="none",
+    )
+    return (-nll).view(B, L_minus_1)</code></pre>
+            <p>
+                Here, we compute the log-probability of each token in the completion given the prompt. The model reads the full prompt plus completion left to right; at each step it outputs scores
+                for every possible next word. Logits at position \(t\) predict token \(t+1\), so we slice
+                <code>logits[:, :-1]</code> and compare against <code>input_ids[:, 1:]</code>. Each output entry is
+                \(\log \pi(\text{actual next token} \mid \text{everything before it})\). We use
+                <code>cross_entropy</code> and during rollout, <code>enable_grad=False</code> caches behavior and reference log-probs without building an autograd graph; during training we turn gradients back on so the policy can learn.
+            </p>
+
+            <p class="code-caption">Completion mask (prompt tokens excluded)</p>
+            <pre class="code-snippet"><code>def build_completion_mask(input_ids, attention_mask, prompt_input_len, pad_token_id):
+    valid = attention_mask[:, 1:].bool()                    # [B, L-1]
+    L = input_ids.shape[1]
+    target_idx = torch.arange(1, L, device=input_ids.device)
+    is_completion = target_idx >= prompt_input_len        # broadcast over batch
+    return (valid & is_completion).to(dtype=input_ids.dtype)</code></pre>
+            <p>
+                The log-prob tensor has shape \([B, L-1]\), but we only want to train on tokens the model
+                <strong>generated</strong>, not the fixed prompt or padding. Index \(t\) in the log-prob array scores
+                token \(t+1\) in <code>input_ids</code>, so the first completion token (at index
+                <code>prompt_input_len</code>) corresponds to log-prob slot <code>prompt_input_len - 1</code>.
+                The mask keeps positions where the scored token is both a real token (<code>attention_mask</code>) and
+                part of the completion (<code>target_idx &gt;= prompt_input_len</code>). Prompt tokens still get scored
+                by the forward pass, but they are zeroed out here so REINFORCE and GRPO only update on actions the
+                policy actually took.
+            </p>
+
+            <p class="code-caption">Approximate KL from sampled completion tokens</p>
+            <pre class="code-snippet"><code>def approx_kl_from_logprobs(new_logprobs, ref_logprobs, mask, log_ratio_clip=20.0):
+    delta = torch.clamp(ref_logprobs - new_logprobs, -log_ratio_clip, log_ratio_clip)
+    per_token = torch.exp(delta) - delta - 1
+    return masked_mean(per_token, mask)</code></pre>
+            <p>
+                This measures <strong>how far the trainable policy has drifted from the frozen reference</strong> on
+                the tokens we actually sampled. We cannot sum
+                over the full vocabulary at every position, so we only evaluate the sampled tokens and average over
+                them.
+            </p>
+
+
+            <h2 id="implementation-algos">GR-REINFORCE and GRPO</h2>
+            <p>
+                <strong>GR-REINFORCE</strong> recomputes \(\log \pi_\theta\) on the current policy, averages completion-token
+                log-probs per sequence, and forms \(pg\_loss = -\mathbb{E}[A_i \cdot \bar{\ell}_i]\).
+            </p>
+
+            <p class="code-caption">GR-REINFORCE update (sequence-level, single pass)</p>
+            <pre class="code-snippet"><code>new_logp = compute_per_token_logprobs(model, mb.input_ids, mb.attention_mask)
+seq_logp = masked_mean_per_row(new_logp, mask)
+pg_loss = -(adv * seq_logp).mean()
+kl = approx_kl_from_logprobs(new_logp, mb.ref_logprobs, mask)
+loss = pg_loss + cfg.kl_coef * kl</code></pre>
+
+            <p>
+                <strong>GRPO</strong> uses cached <code>old_logprobs</code> from the behavior policy, computes clipped
+                per-token objectives, averages within each completion, and loops <code>ppo_epochs</code> over the same
+                rollout. REINFORCE does not use <code>old_logprobs</code>.
+            </p>
+
+            <p class="code-caption">GRPO update (PPO-style clipping, multiple epochs)</p>
+            <pre class="code-snippet"><code>for _ in range(cfg.ppo_epochs):
+    for mb in iter_minibatches(rollout, cfg.minibatch_size, shuffle=True):
+        new_logp = compute_per_token_logprobs(model, mb.input_ids, mb.attention_mask)
+        log_ratio = torch.clamp(new_logp - mb.old_logprobs, -20, 20)
+        ratio = torch.exp(log_ratio)
+        adv_t = adv.unsqueeze(1)
+        unclipped_t = ratio * adv_t
+        clipped_t = torch.clamp(ratio, 1 - cfg.clip_eps, 1 + cfg.clip_eps) * adv_t
+        per_token_obj_t = torch.min(unclipped_t, clipped_t) * mask
+        seq_obj_i = masked_mean_per_row(per_token_obj_t, mask)
+        pg_loss = -seq_obj_i.mean()
+        kl = approx_kl_from_logprobs(new_logp, mb.ref_logprobs, mask)
+        loss = pg_loss + cfg.kl_coef * kl</code></pre>
+        </section>
+
+        <section id="tasks" class="blog-section">
+            <h1>Tasks and rewards</h1>
+
+            <h2 id="tasks-format-copy">Task 1: Format copy</h2>
+            <p>
+                An intentionally easy debugging task. The model must copy an integer into strict XML:
+                <code>&lt;answer&gt;...&lt;/answer&gt;</code> with no extra text. Reward components:
+            </p>
+            <ul>
+                <li><strong>+1.0</strong> if the parsed number exactly matches the target integer</li>
+                <li><strong>+0.2</strong> if valid XML with an <code>&lt;answer&gt;</code> tag is present</li>
+                <li><strong>+0.1</strong> if the completion is strict XML only</li>
+            </ul>
+
+            <h2 id="tasks-math-hard">Task 2: Math hard</h2>
+            <p>
+                The main benchmark uses
+                <a href="https://huggingface.co/datasets/the-jb/hendrycks-math" target="_blank" rel="noopener noreferrer">the-jb/hendrycks-math</a>
+                on Hugging Face. Each row has a <code>problem</code>, worked <code>solution</code>,
+                numeric <code>answer</code>, difficulty <code>level</code> (1–5), and subject <code>type</code>
+                (Algebra, Number Theory, etc.). 
+            </p>
+            <p>
+                For RL training, <code>math_hard</code> filters to <strong>Level 5</strong> problems whose ground-truth
+                answer parses as a finite number (from <code>\boxed{...}</code> in the solution or a direct numeric
+                field). Training samples from the train split; evaluation uses a deterministic
+                <strong>512-example</strong> subset of the test split by default. The system prompt requires a final
+                answer in <code>\boxed{NUMBER}</code> form:
+            </p>
+            <pre class="code-snippet"><code>System: Solve the competition-level math problem.
+        Return the final answer in this exact format: \boxed{NUMBER}
+        Do not output XML, ####, or extra prose.
+        Output only the boxed final answer.
+
+User:   &lt;problem text&gt;
+
+        Return only: \boxed{NUMBER}</code></pre>
+            <p><strong>Reward components</strong></p>
+            <ul>
+                <li><strong>+1.0</strong> if the boxed-answer parser extracts the correct number</li>
+                <li><strong>+0.1</strong> if the completion contains <code>\boxed{}</code></li>
+                <li><strong>+0.1</strong> if a relaxed last-number parser is correct but the boxed parser is not</li>
+            </ul>
+            <p>
+                Maximum total reward is 1.2. Shaping rewards beyond exact correctness help exploration early in
+                training when the base model rarely emits well-formed boxed answers.
+            </p>
+
+            <h3>Example problems (Level 5)</h3>
+            <p class="text-muted">
+                Three rows from the dataset. The model must solve the problem and return
+                <code>\boxed{NUMBER}</code> with the correct value.
+            </p>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-1"><strong>Example 1</strong> · Algebra · Level 5 · answer: <code>192</code></p>
+                    <p class="mb-0">
+                        If \(f(3)=1\) and \(f(2x)=2f(x)\) for all \(x\), find \(f^{-1}(64)\).
+                    </p>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-1"><strong>Example 2</strong> · Algebra · Level 5 · answer: <code>10</code></p>
+                    <p class="mb-0">
+                        Let
+                        \[
+                        f(x) = \begin{cases} 3x^2 + 2 & \text{if } x \le 3, \\ ax - 1 & \text{if } x > 3. \end{cases}
+                        \]
+                        Find \(a\) if the graph of \(y=f(x)\) is continuous.
+                    </p>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-1"><strong>Example 3</strong> · Algebra · Level 5 · answer: <code>9</code></p>
+                    <p class="mb-0">
+                        The roots of the equation \(x^2+kx+5 = 0\) differ by \(\sqrt{61}\). Find the greatest possible
+                        value of \(k\).
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section id="training-results" class="blog-section">
+            <h1>Training results</h1>
+            <p class="lead">
+                I trained both algorithms on each task using Modal on an H100. Starting with
+                <code>format_copy</code> before the more challenging
+                <code>math_hard</code> task. 
+
+            <h2 id="training-format-grpo">Format copy + GRPO</h2>
+            <p>
+                Training for 51 steps with a batch size of 8, group size of 6, and 2 PPO epochs. 
+                Both the training fraction of exact completions and the eval exact match rate reach ~1.0
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/format_copy_grpo_reward.png" class="card-img-top" alt="Format copy GRPO training reward">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Training reward — format_copy + GRPO</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/format_copy_grpo_eval.png" class="card-img-top" alt="Format copy GRPO eval exact match">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval exact match — format_copy + GRPO</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 id="training-format-reinforce">Format copy + GR-REINFORCE</h2>
+            <p>
+                Same rollout settings as the GRPO run above, but single-pass on-policy (no <code>ppo_epochs</code>).
+                Like GRPO, the training fraction of exact completions and the eval exact match rate reach ~1.0
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/format_copy_reinforce_reward.png" class="card-img-top" alt="Format copy GR-REINFORCE training reward">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Training reward — format_copy + GR-REINFORCE</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/format_copy_reinforce_eval.png" class="card-img-top" alt="Format copy GR-REINFORCE eval exact match">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval exact match — format_copy + GR-REINFORCE</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <img src="./images/format_copy_compare.png" class="card-img-top" alt="Format copy GRPO vs GR-REINFORCE comparison">
+                        <div class="card-body">
+                            <p class="card-text mb-0">GRPO vs GR-REINFORCE on format_copy (reward and eval)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 id="training-math-reinforce">Math hard + GR-REINFORCE</h2>
+            <p>
+                GR-REINFORCE is trained for 201 steps, using a batch size of 8, and a group size of 8.
+                The final eval boxed exact match reached roughly \(\geq 0.29\) (baseline ~0.23 before RL).
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <img src="./images/math_hard_reinforce_eval.png" class="card-img-top" alt="Math hard GR-REINFORCE eval curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval boxed exact match — math_hard + GR-REINFORCE (201 steps)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 id="training-math-grpo">Math hard + GRPO</h2>
+            <p>
+                GRPO is trained longer with 501 steps and 2 PPO epochs per rollout. Over the first 200 iterations, GRPO learns more
+                sample-efficiently than GR-REINFORCE by reusing each batch for two clipped optimization passes.
+                The final eval boxed exact match reached roughly \(\geq 0.40\).
+            </p>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <img src="./images/math_hard_grpo_eval.png" class="card-img-top" alt="Math hard GRPO eval curve">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval boxed exact match — math_hard + GRPO (501 steps)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-4 mb-4">
+                <div class="col-lg-12">
+                    <div class="card">
+                        <img src="./images/math_hard_algo_compare.png" class="card-img-top" alt="Math hard GRPO vs GR-REINFORCE first 200 steps">
+                        <div class="card-body">
+                            <p class="card-text mb-0">GR-REINFORCE vs GRPO on math_hard (first 200 steps aligned)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h3 id="training-math-generations">Example generations</h3>
+            <p class="text-muted">
+                Logged WandB rollout samples from <code>math_hard + GRPO</code> (group size 8). Each row shows the
+                parsed boxed answer, total reward, and group-normalized advantage used for the policy update.
+            </p>
+
+            <div class="accordion mb-4" id="math-hard-generations-accordion">
+                <div class="accordion-item">
+                    <h4 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#math-hard-generations-panel" aria-expanded="false"
+                            aria-controls="math-hard-generations-panel">
+                            View 4 logged rollout samples
+                        </button>
+                    </h4>
+                    <div id="math-hard-generations-panel" class="accordion-collapse collapse"
+                        data-bs-parent="#math-hard-generations-accordion">
+                        <div class="accordion-body text-start">
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-2 generation-meta">
+                        <strong>Correct boxed answer</strong> · step 409 · Level 5 ·
+                        ground truth <code>175</code> · predicted <code>175</code> ·
+                        reward <code>1.1</code> · advantage <code>+1.73</code>
+                    </p>
+                    <p class="mb-2">
+                        The four positive integers \(a,\) \(b,\) \(c,\) \(d\) satisfy
+                        \(a \times b \times c \times d = 10!\). Find the smallest possible value of \(a + b + c + d.\)
+                    </p>
+                    <p class="code-caption mb-1">Completion (excerpt)</p>
+                    <div class="generation-text">To find the smallest possible value of \(a + b + c + d\) given that \(a \times b \times c \times d = 10!\), we need to factorize \(10!\) and distribute the factors as evenly as possible among \(a\), \(b\), \(c\), and \(d\).
+
+First, we calculate \(10!\):
+\[10! = 10 \times 9 \times 8 \times 7 \times 6 \times 5 \times 4 \times 3 \times 2 \times 1 = 3628800.\]
+
+Next, we need to find the prime factorization of \(10!\):
+\[10! = 2^8 \times 3^4 \times 5^2 \times 7.\]
+
+[...]
+
+Thus, the smallest possible value of \(a + b + c + d\) is:
+\[\boxed{175}.\]</div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-2 generation-meta">
+                        <strong>Wrong answer, valid format</strong> · step 409 · Level 5 ·
+                        ground truth <code>175</code> · predicted <code>200</code> ·
+                        reward <code>0.1</code> · advantage <code>−0.50</code>
+                    </p>
+                    <p class="mb-2">
+                        The four positive integers \(a,\) \(b,\) \(c,\) \(d\) satisfy
+                        \(a \times b \times c \times d = 10!\). Find the smallest possible value of \(a + b + c + d.\)
+                    </p>
+                    <p class="code-caption mb-1">Completion (excerpt)</p>
+                    <div class="generation-text">[...]
+
+After some calculation and optimization, we find that the optimal values for \(a\), \(b\), \(c\), and \(d\) are 45, 48, 50, and 56, which give us the smallest possible sum:
+\[a + b + c + d = 45 + 48 + 50 + 56 = 200.\]
+
+Thus, the smallest possible value of \(a + b + c + d\) is \(\boxed{200}\).</div>
+                    <p class="mb-0 text-muted small">
+                        The model emits well-formed \(\boxed{}\) output but gets the factorization wrong. Therefore, only the
+                        +0.1 format-shaping reward applies, and the negative advantage down-weights this completion.
+                    </p>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-2 generation-meta">
+                        <strong>Correct boxed answer</strong> · step 199 · Level 5 ·
+                        ground truth <code>2</code> · predicted <code>2</code> ·
+                        reward <code>1.1</code> · advantage <code>+0.38</code>
+                    </p>
+                    <p class="mb-2">
+                        Let \(P\) be a point inside triangle \(ABC\). Let \(G_1\), \(G_2\), and \(G_3\) be the centroids
+                        of triangles \(PBC\), \(PCA\), and \(PAB\), respectively. If the area of triangle \(ABC\) is 18,
+                        find the area of triangle \(G_1 G_2 G_3\).
+                    </p>
+                    <p class="code-caption mb-1">Completion (excerpt)</p>
+                    <div class="generation-text">[...]
+
+The key insight is that the triangle \(G_1G_2G_3\) is similar to triangle \(ABC\) and its area is \(\frac{1}{9}\) of the area of triangle \(ABC\).
+
+Given that the area of triangle \(ABC\) is 18, the area of triangle \(G_1G_2G_3\) is:
+\[
+\text{Area of } G_1G_2G_3 = \frac{1}{9} \times 18 = 2
+\]
+
+Thus, the area of triangle \(G_1G_2G_3\) is \(\boxed{2}\).</div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body text-start">
+                    <p class="mb-2 generation-meta">
+                        <strong>No \(\boxed{}\) — format failure</strong> · step 409 · Level 5 ·
+                        ground truth <code>175</code> · predicted <code>—</code> ·
+                        reward <code>0.0</code> · advantage <code>−0.72</code>
+                    </p>
+                    <p class="mb-2">
+                        The four positive integers \(a,\) \(b,\) \(c,\) \(d\) satisfy
+                        \(a \times b \times c \times d = 10!\). Find the smallest possible value of \(a + b + c + d.\)
+                    </p>
+                    <p class="code-caption mb-1">Completion (excerpt)</p>
+                    <div class="generation-text">To solve the problem of finding the smallest possible value of \(a + b + c + d\) where \(a \times b \times c \times d = 10!\), we need to factorize \(10!\) and distribute the factors into four numbers \(a, b, c, d\) such that their sum is minimized.
+
+[...]
+
+# Distribute the factors as evenly as possible
+for prime, exp in prime_factors.items():
+    count = exp // 4
+    a *= prime**count
+    b *= prime**count
+    c *= prime**count
+    d *= prime**count
+
+# Calculate the sum
+sum_abcd = a + b + c + d
+print</div>
+                    <p class="mb-0 text-muted small">
+                        The completion starts with Python pseudocode but never outputs \(\boxed{NUMBER}\), earning zero
+                        reward.
+                    </p>
+                </div>
+            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const tocToggle = document.getElementById('toc-toggle');
+            const tocContent = document.getElementById('toc-content');
+
+            if (tocToggle && tocContent) {
+                tocToggle.addEventListener('click', function() {
+                    tocContent.classList.toggle('show');
+                    this.classList.toggle('collapsed');
+                });
+            }
+
+            const tocLinks = Array.from(document.querySelectorAll('.toc-nav a[href^="#"]'));
+            const tocTargets = tocLinks
+                .map((link) => {
+                    const id = link.getAttribute('href').slice(1);
+                    const element = document.getElementById(id);
+                    return element ? { link, element } : null;
+                })
+                .filter(Boolean);
+
+            function updateActiveTocLink() {
+                if (!tocTargets.length) return;
+
+                const scrollPosition = window.scrollY + 140;
+                let active = tocTargets[0];
+
+                tocTargets.forEach((entry) => {
+                    if (entry.element.offsetTop <= scrollPosition) {
+                        active = entry;
+                    }
+                });
+
+                tocLinks.forEach((link) => link.classList.remove('toc-active'));
+                active.link.classList.add('toc-active');
+            }
+
+            window.addEventListener('scroll', updateActiveTocLink, { passive: true });
+            window.addEventListener('resize', updateActiveTocLink);
+            updateActiveTocLink();
+
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+
+</body>
+
+</html>
