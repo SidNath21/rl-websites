@@ -41,7 +41,7 @@
     <main class="blog-container">
         
         <!-- Title and Metadata -->
-        <h1 class="blog-title">Dino Game Reinforcement Learning</h1>
+        <h1 class="blog-title">Dino Double Dueling DQN</h1>
         <div class="blog-meta">
             <span>Date: 2026</span> | 
             <span>Author: Siddharth Nath</span> | 
@@ -98,7 +98,7 @@
             <h1>Overview</h1>
             <p class="lead">
                 This project explores reinforcement learning by training agents to play the Chrome Dino game. 
-                Specifically, I implemented a version of Double Deuiling DQN (Deep Q-Network) to play the game below. Give it a try!
+                Specifically, I implemented a version of Double Dueling DQN (Deep Q-Network) to play the game below. Give it a try!
             </p>
 
             <div class="game-embed">
@@ -114,6 +114,20 @@
                 </div>
             </div>
 
+            <p>
+                Here is the final result of my model after training for 700 episodes, try beating it.
+
+            <figure class="mb-4 mx-auto" style="max-width: 600px;">
+                <video class="w-100 rounded border" autoplay loop controls muted playsinline preload="metadata">
+                    <source src="./videos/eval_700_raw.mp4" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <figcaption class="small text-muted mt-2 text-center">Episode 700 evaluation rollout (raw frames)</figcaption>
+            </figure>
+
+            <p>  
+                Now I'll walk through how I trained the model and my learnings along the way.
+            </p>
 
             <h3 id="dino-game-environment">The Dino Game Environment</h3>
             <p>
