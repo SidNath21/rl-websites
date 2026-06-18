@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Dino Game RL - Reinforcement Learning Blog</title>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+
+    <link href="style.css" rel="stylesheet">
+
+    <!-- Bootstrap JS Bundle (includes Popper.js for tooltips) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
+        crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+
+    <!-- Header -->
+    <header class="blog-header">
+        <div class="container">
+            <a href="http://sidnath21.github.io" class="blog-logo">sidnath21.github.io</a>
+            <nav>
+                <ul class="blog-nav">
+                    <li><a href="https://sidnath21.github.io/#projects">Projects</a></li>
+                    <li><a href="https://sidnath21.github.io/#about">About</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="blog-container">
+        
+        <!-- Title and Metadata -->
+        <h1 class="blog-title">Dino Game Reinforcement Learning</h1>
+        <div class="blog-meta">
+            <span>Date: 2026</span> | 
+            <span>Author: Siddharth Nath</span> | 
+            <span>Email: sidnath21@gmail.com</span>
+        </div>
+                            
+        <!-- Table of Contents -->
+        <div class="toc-container">
+            <div class="toc-toggle" id="toc-toggle">
+                                <span class="chevron">▼</span>
+                <span>Table of Contents</span>
+                            </div>
+            <div class="toc-content show" id="toc-content">
+                <ul class="toc-nav">
+                    <li>
+                        <a href="#overview">Overview</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#dino-game-environment">The Dino Game Environment</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#what-is-q-learning">What is Q-Learning?</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#q-learning-intro">Introduction</a></li>
+                            <li class="toc-sub-item"><a href="#dqn-intro">DQN</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#dqn-improvements">Improvements to DQN</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#double-dqn">Double DQN</a></li>
+                            <li class="toc-sub-item"><a href="#dueling-dqn">Dueling DQN</a></li>
+                        </ul>
+                    </li>
+                    <li><a href="#network-architecture">Network Architecture</a></li>
+                    <li>
+                        <a href="#learning-from-past-experiences">Learning from past experiences</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#prioritized-experience-replay">Prioritized Experience Replay (PER)</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#dqn-results">Results</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#agent-rollouts">Agent Rollouts</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                            </div>
+                            </div>
+                            
+        <!-- Overview Section -->
+        <section id="overview" class="blog-section">
+            <h1>Overview</h1>
+            <p class="lead">
+                This project explores reinforcement learning by training agents to play the Chrome Dino game. 
+                Specifically, I implemented a version of Double Deuiling DQN (Deep Q-Network) to play the game below. Give it a try!
+            </p>
+
+            <div class="game-embed">
+                <div class="game-container" id="game-container">
+                    <iframe 
+                        id="game-iframe"
+                        src="https://chromedino.com/" 
+                        frameborder="0" 
+                        scrolling="no" 
+                        loading="lazy"
+                        allow="autoplay">
+                    </iframe>
+                </div>
+            </div>
+
+
+            <h3 id="dino-game-environment">The Dino Game Environment</h3>
+            <p>
+                The Dino game requires you to control a dinosaur to jump over obstacles and survive as long as possible. 
+                Additionally, the game increases in speed over time which makes it more challenging as time goes on.
+            </p>
+
+            <p>
+                <strong>State Space:</strong> The Dino game has a continuous, high-dimensional state space which is represented by the visual observation of the game. 
+                For faster and more efficient model training, I preprocess and resize each frame to be an 84 x 84 grayscale image. 
+                Another trick to help the model capture temporal information and motion is to stack every 4 consecutive frames together. This makes the final state a (4, 84, 84) tensor. This means each state is represented by 4 x 84 * 84 = 28,224-dimensions.
+            </p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/raw_frame.png" alt="Raw Frame" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 1:</strong> Raw game frame captured from the screen before preprocessing.
+                        </figcaption>
+                    </figure>
+                </div>
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/processed_frame.png" alt="Processed Frame" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 2:</strong> Processed 84×84 grayscale frame ready for model input.
+                        </figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <p style="margin-top: 1rem;">
+                <strong>Frame Stacking:</strong> To capture information about motion, I stack every 4 consecutive frames together. Without stacking frames, the model would not be able to capture the direction of movement or velocity of the dinosaur. This is especially important since the game speeds up over time.
+            </p>
+
+            <div class="frame-stack-container">
+                <figure>
+                    <div class="frame-stack">
+                        <div class="frame-stack__item" data-frame="0">
+                            <img src="images/frame_stack_0.png" alt="Frame 0" class="img-fluid">                        
+                        </div>
+                        <div class="frame-stack__item" data-frame="1">
+                            <img src="images/frame_stack_1.png" alt="Frame 1" class="img-fluid">
+                    </div>
+                        <div class="frame-stack__item" data-frame="2">
+                            <img src="images/frame_stack_2.png" alt="Frame 2" class="img-fluid">
+                </div>
+                        <div class="frame-stack__item" data-frame="3">
+                            <img src="images/frame_stack_3.png" alt="Frame 3" class="img-fluid">
+                        </div>
+                    </div>
+                    <figcaption>
+                        <strong>Figure 3:</strong> Stacked frames ready for model input.
+                    </figcaption>
+                </figure>
+            </div>
+
+            <p>
+                <strong>Action Space:</strong> When playing the game youself, you have the option to either jump, duck, or do nothing. To simplify the logic and make it easier for the model to learn, I restrict the action space to only jump and do nothing. The action space is:
+            </p>
+            <ul>
+                <li> \(a_0\) = No action: Continue running</li>
+                <li> \(a_1\) = Jump: Avoid obstacles</li>
+            </ul>
+
+            <p>
+                <strong>Reward Shaping:</strong> The reward function encourages survival and successful obstacle avoidance. The agent receives <code>+0.1</code> for each time step survived, and <code>-1.0</code> when it collides with an obstacle.
+            </p>
+
+            <p>
+                <strong>Implementation Details:</strong> 
+                Unfortunately, there is no <a href="https://gymnasium.farama.org">Gymnasium environment</a> for the Chrome Dino game. So, I had to deal with additional overhead of screen capturing and preprocessing the frames. Gymnasium is still a great source for this project as I modeled my custom Dino environment after the environment class documented <a href="https://gymnasium.farama.org/api/env/">here</a>. To control the rate of screen capture, I use a target FPS (frames per second) parameter to guide the timing. I calculate the delay between frame captures as <code>dt = 1.0 / fps</code> and use <code>time.sleep(dt)</code> between captures. This ensures that frames are captured at a consistent, controlled rate rather than as fast as possible, which helps maintain temporal consistency in the frame stack and prevents the agent from learning on redundant or too-rapid observations.
+            </p>
+
+        </section>
+
+        <!-- Dueling Double DQN Section -->
+        <section id="what-is-q-learning" class="blog-section">
+            <h1> What is Q-Learning?</h1>
+
+            <h2 id="q-learning-intro">Introduction</h2>
+            <p>
+
+                Q-Learning is a <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Model-free reinforcement learning algorithms do not require a model of the environment to be learned. They learn directly from interacting with the environment ">model-free</span> reinforcement learning algorithm that learns the optimal action-value function, \(Q(s,a)\), which tells you the expected reward from taking action \(a\) in state \(s\).
+
+            </p>
+
+            <p class="text-center">
+                \(
+                    Q^*(s, a) = \mathbb{E}[ r + \gamma \max_{a'} Q^*(s', a') ]
+                \)
+
+            </p>
+
+            To estimate the optimal action-value function, we use the Q-learning update rule:
+            
+
+            <p class="text-center pt-3">
+                \(
+                    Q(s, a) \leftarrow Q(s, a) + \alpha [
+                \)
+                <span class="td-target-math">
+                    \( r + \gamma \max_{a'} Q(s', a') \)
+                </span>
+                \(
+                    - Q(s, a)]
+                \)
+            </p>
+
+            Simplifying the above equation, we get:
+
+            <p class="text-center pt-3">
+                \(
+                    Q(s, a) \leftarrow Q(s, a) + \alpha [
+                \)
+                <span class="td-error-math">
+                    \( y - Q(s, a) \)
+                </span>
+                \(
+                    ]
+                \)
+            </p>
+
+            <p>
+
+                where 
+                <ul>
+                    <li><span class="td-target-math">\(y = r + \gamma \max_{a'} Q(s', a')\)</span> is the Temporal-Difference (TD) target</li>
+                    <li><span class="td-error-math">\(y - Q(s, a)\)</span> is the TD error</li>
+                    <li>\(\alpha\) is the learning rate</li>
+                </ul>
+
+                As the agent plays the game, it will collect a trajectory for each episode. This trajectory is a sequence of states, actions, and rewards (s, a, r, s') and will be used to update the Q-values for each state-action pair.
+                
+                Once we have estimates of the Q-values for each state-action pair, we can use the Q-values to construct an optimal policy that selects the action that maximizes the expected reward:
+                \[
+                    \pi^*(s) = \arg\max_a Q(s, a)
+                \]
+
+                For a simple game like Blackjack, the state space is relatively small so we can initialize and maintain a table to store the Q-values for each state-action pair. 
+                However, for the Dino game, the state space is much larger so we need to use a neural network to approximate the Q-values.
+
+            </p>
+
+            <h2 id="dqn-intro">DQN</h2>
+            <p>
+                Let's examine the Chrome Dino game environment and understand why tabular Q-learning is insufficient for this problem.
+            </p>
+
+            <h3>Why Tabular Q-Learning Fails</h3>
+            <p>
+                Tabular Q-learning requires storing a Q-value for every possible state-action pair. 
+                For the Dino game, with a state space of 28,224 dimensions, this is infeasible due to the memory requirements and the number of transitions we would need to learn accurate Q-values.
+                Some techniques like discretization can help reduce the state space, but it is still infeasible to store a Q-value for every possible state-action pair.
+
+            </p>
+
+            <h3>Deep Q-Network (DQN) Solution</h3>
+            <p>
+                Deep Q-Network (DQN) addresses these limitations by using a neural network to approximate the Q-function instead of storing a table. The key insight is that similar states should have similar Q-values, and a neural network can learn to generalize from a limited set of experiences. 
+            </p>
+
+            <p>
+                The DQN architecture takes the state (4 stacked 84×84 grayscale frames) as input and outputs Q-values for all possible actions in a single forward pass. 
+                Instead of learning \(Q(s, a)\) for each state-action pair separately, the network learns a function \(Q_\theta(s, a)\) parameterized by weights \(\theta\) that can estimate Q-values for any given state. To summarize,
+                <ul>
+                    <li> Input (s): (4, 84, 84) tensor of stacked frames, plus a normalized episode timestep \(t\)</li>
+                    <li> Output Vector of Q-values for all actions: \([Q(s, a_0), Q(s, a_1)]\)
+                </ul>
+            </p>
+
+            <p>
+                The network is trained using the Q-learning update rule, but instead of updating a table entry, we update the network weights using gradient descent:
+                \[
+                    \theta \leftarrow \theta - \alpha \nabla_\theta \mathcal{L}(\theta)
+                \]
+                where the loss function aims to minimize the squared difference between the predicted and target Q-values: \( (y - Q_\theta(s, a))^2 \). Expanding this out, we get:
+                \[
+                    \mathcal{L}(\theta) = \mathbb{E}_{(s,a,r,s') \sim \mathcal{D}} \left[ \left( r + \gamma \max_{a'} Q(s', a') - Q_\theta(s, a) \right)^2 \right]
+                \]
+
+                
+            </p>
+
+            <h3>Target Network</h3>
+            <p>
+                One critical component of DQN is the <strong>target network</strong>, which is a separate copy of the Q-network that is used to compute the TD target. The target network has parameters \(\theta^-\), which are periodically copied from the main network parameters \(\theta\) (typically every few thousand steps).
+            </p>
+
+            <p>
+                The TD target in DQN is computed as:
+                \[
+                    y = r + \gamma \max_{a'} Q(s', a'; \theta^-)
+                \]
+                Notice that we use the target network (with parameters \(\theta^-\)) to estimate the Q-value of the next state, not the main network that we're currently updating.
+            </p>
+
+            <p>
+                <strong>Why use a target network?</strong> 
+                
+                Without it, the TD target would be:
+                \[
+                    y = r + \gamma \max_{a'} Q(s', a'; \theta)
+                \]
+                This creates a problem: every time we update the main network's weights \(\theta\), the target \(y\) also changes, because it depends on the same parameters. This makes the learning target "move" with every update, similar to trying to hit a moving target. The network is chasing a goal that keeps changing, which leads to:
+            </p>
+            <ul>
+                <li><strong>Training instability:</strong> The constantly shifting target makes it difficult for the network to converge</li>
+                <li><strong>Oscillations:</strong> Q-value estimates can oscillate wildly as the target and current estimates chase each other</li>
+                <li><strong>Slow convergence:</strong> The network takes much longer to learn stable Q-value estimates</li>
+            </ul>
+
+            <p>
+                By using a target network that updates less frequently, we provide a stable target for the main network to learn from. The target network acts as a "snapshot" of the Q-function that changes slowly, giving the main network time to catch up and learn more stable estimates. This is one of the key innovations that made deep reinforcement learning practical.
+            </p>
+
+            <h2 id="dqn-improvements">Improvements to DQN</h2>
+            
+            <h3 id="double-dqn">Double DQN</h3>
+            <p>
+                Vanilla DQN suffers from a problem known as <strong>overestimation bias</strong>. Recall that the Q-learning update relies on computing the TD target using the target network: \(y = r + \gamma \max_{a'} Q(s', a'; \theta^-)\).
+                The issue is that the same network (the target network) is used both to select the best action (via \(\max_{a'}\)) and to evaluate its value. This creates a positive bias: the network tends to overestimate Q-values, especially early in training when the estimates are noisy.
+            </p>
+
+            <p>
+                <strong>Double DQN</strong> addresses this by decoupling action selection from action evaluation. Instead of using the target network for both operations, Double DQN uses the main network to select the best action, and the target network to evaluate its value:
+                \[
+                    y = r + \gamma Q(s', \arg\max_{a'} Q(s', a'; \theta); \theta^-)
+                \]
+                This simple change significantly reduces overestimation bias and leads to more stable and accurate Q-value estimates.
+            </p>
+
+            <p>
+                <strong>What Double DQN solves:</strong>
+            </p>
+            <ul>
+                <li><strong>Overestimation bias:</strong> Prevents the network from systematically overestimating Q-values, which can lead to suboptimal policies.</li>
+                <li><strong>Training stability:</strong> More accurate Q-value estimates result in more stable learning and faster convergence.</li>
+                <li><strong>Performance:</strong> Often achieves better final performance compared to vanilla DQN, especially in complex environments.</li>
+            </ul>
+
+            <h3 id="dueling-dqn">Dueling DQN</h3>
+            <p>
+                <strong>Dueling DQN</strong> improves upon DQN by changing the network architecture to separately estimate the state value \(V(s)\) and the advantage \(A(s, a)\). The key insight is that for many states, it's unnecessary to estimate the value of each action independently. Instead, we can decompose the Q-value as:
+                \[
+                    Q(s, a) = V(s) + A(s, a)
+                \]
+                where:
+            </p>
+            <ul>
+                <li><strong>\(V(s)\):</strong> The value of being in state \(s\) (how good the state is overall)</li>
+                <li><strong>\(A(s, a)\):</strong> The advantage of taking action \(a\) in state \(s\) relative to the average action (how much better or worse this action is compared to others)</li>
+            </ul>
+
+            <p>
+                <strong>Why this decomposition helps:</strong> In many states, the overall quality of the state is more important than the relative differences between actions. Consider examples from the Dino game:
+            </p>
+
+            <ul>
+                <li><strong>Clear path ahead (no obstacles visible):</strong> In this state, all actions (no action, jump, duck) have similar values because the state itself is safe. The state value \(V(s)\) is high (good state to be in), while the advantages \(A(s, a)\) for all actions are close to zero since no action is particularly better than another. Vanilla DQN would need to learn that \(Q(s, \text{no action}) \approx Q(s, \text{jump}) \approx Q(s, \text{duck})\), which requires learning three similar values. Dueling DQN only needs to learn one high state value and three small advantages, which is more efficient.</li>
+                
+                <li><strong>Obstacle approaching (cactus visible):</strong> Here, the state value \(V(s)\) indicates danger (lower value), but the advantage stream can quickly learn that jumping has a large positive advantage while doing nothing has a large negative advantage. The decomposition allows the network to separately learn "this is a dangerous state" (via \(V(s)\)) and "jumping is the right action here" (via \(A(s, \text{jump})\)).</li>
+            </ul>
+
+            <p>
+                By separating state value from action advantages, Dueling DQN can learn that "being in a safe state is good" or "being near an obstacle is dangerous" without having to relearn this for every possible action. The advantage stream then focuses on learning the relative differences between actions, which are typically much smaller and easier to learn.
+            </p>
+
+            <p>
+                However, this decomposition is unidentifiable—adding a constant to \(V(s)\) and subtracting it from \(A(s, a)\) gives the same Q-value. To make it identifiable, Dueling DQN uses the following aggregation:
+                \[
+                    Q(s, a; \theta) = V(s; \theta) + \left( A(s, a; \theta) - \frac{1}{|\mathcal{A}|} \sum_{a'} A(s, a'; \theta) \right)
+                \]
+                This forces the advantage function to have zero mean, making the decomposition unique. The network architecture splits into two streams after the convolutional layers: one estimates \(V(s)\) and the other estimates \(A(s, a)\), which are then combined to produce \(Q(s, a)\).
+            </p>
+
+            <h2 id="network-architecture">Network Architecture</h2>
+            <p>
+                The DQN network uses a <strong>Dueling architecture</strong> that separates state value estimation from action advantage estimation. The network consists of five main components:
+            </p>
+            <p>
+                <strong>1. Shared Feature Extractor:</strong> Three convolutional layers process the input frames (4 stacked 84×84 grayscale images). The first layer uses a large 8×8 kernel with stride 4 to quickly reduce spatial dimensions, followed by a 4×4 kernel with stride 2, and finally a 3×3 kernel with stride 1. Each layer is followed by ReLU activation. This extracts spatial features like obstacles, the dinosaur position, and game elements.
+            </p>
+            <p>
+                <strong>2. Timestep Context Feature:</strong> The Dino game speeds up as an episode progresses, so the same visual scene at different times can require different jump timing. Frame stacking captures short-term motion but does not explicitly tell the network how far into the episode it is. To address this, I concatenate a normalized timestep \(t\) to the flattened convolutional features before the value and advantage streams. The timestep is the step index within the current episode, mapped to \([0, 1)\) via:
+                \[
+                    t_{\text{norm}} = 1 - e^{-t/200}
+                \]
+                This gives the network a direct signal for game speed and urgency without changing the visual preprocessing pipeline.
+            </p>
+            <p>
+                <strong>3. Value Stream:</strong> After concatenating the conv features with \(t_{\text{norm}}\), a fully connected layer with 512 units processes the combined features to estimate \(V(s)\)—the overall value of being in state \(s\), regardless of which action is taken.
+            </p>
+            <p>
+                <strong>4. Advantage Stream:</strong> A parallel fully connected layer (also 512 units) takes the same combined features and estimates \(A(s, a)\)—the advantage of taking action \(a\) in state \(s\) compared to the average action. The advantage head outputs one value per action.
+            </p>
+            <p>
+                <strong>5. Q-value Combination:</strong> The final Q-values are computed as \(Q(s, a) = V(s) + (A(s, a) - \text{mean}_a A(s, a))\). The mean subtraction ensures identifiability and allows the network to learn that some states are inherently valuable (high \(V(s)\)) while others require specific actions (high \(A(s, a)\) for certain actions).
+            </p>
+
+            <div class="mt-4 mb-4">
+                <pre class="bg-light p-3 rounded" style="overflow-x: auto;"><code>class DuelingDQNNetwork(nn.Module):
+    """
+    <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Dueling DQN separates state value and action advantages into two streams.">Dueling architecture</span>:
+    <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Aggregation formula combining value and mean-centered advantage to produce Q-values.">Q(s,a) = V(s) + (A(s,a) - mean_a A(s,a))</span>
+
+    Input:  (B, 4, 84, 84) + normalized timestep t in [0, 1)
+    Output: (B, num_actions) # Q-values for each action
+    """
+
+    def __init__(self, obs_channels=4, num_actions=2, context_dim=1):
+        super().__init__()
+
+        # <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Convolutional backbone shared by value and advantage streams.">Shared feature extractor</span>
+        self.conv_net = nn.Sequential(
+            nn.Conv2d(obs_channels, 32, kernel_size=8, stride=4),  # -> (32, 20, 20)
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),            # -> (64, 9, 9)
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),            # -> (64, 7, 7)
+            nn.ReLU(),
+        )
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, obs_channels, 84, 84)
+            n_flat = self.conv_net(dummy).view(1, -1).shape[1]
+
+        self.context_dim = context_dim
+        shared_input_dim = n_flat + self.context_dim
+
+        # <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimates V(s): how good the current state is overall.">Value stream: V(s)</span>
+        self.value_fc = nn.Sequential(
+            nn.Linear(shared_input_dim, 512),
+            nn.ReLU(),
+        )
+        self.value_head = nn.Linear(512, 1)
+
+        # <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Estimates A(s,a): relative benefit of each action in this state.">Advantage stream: A(s,a)</span>
+        self.advantage_fc = nn.Sequential(
+            nn.Linear(shared_input_dim, 512),
+            nn.ReLU(),
+        )
+        self.advantage_head = nn.Linear(512, num_actions)
+
+    def forward(self, x, context=None):
+        """
+        x: (B, C, H, W)
+        context: (B, 1) normalized timestep t_norm = 1 - exp(-t / 200)
+        Returns:
+          q_values: (B, num_actions)
+        """
+        x = self.conv_net(x)
+        x = x.view(x.size(0), -1)
+
+        if context is None:
+            context = torch.zeros(x.size(0), self.context_dim, device=x.device, dtype=x.dtype)
+        x = torch.cat([x, context], dim=1)
+
+        v = self.value_fc(x)
+        v = self.value_head(v)  # (B, 1)
+
+        a = self.advantage_fc(x)
+        a = self.advantage_head(a)  # (B, num_actions)
+
+        # <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Combines the two streams with zero-mean advantage for identifiability.">Combine streams with mean-centered advantage</span>
+        q = v + (a - a.mean(dim=1, keepdim=True))
+        return q</code></pre>
+            </div>
+            
+            <h2 id="learning-from-past-experiences">Learning from past experiences</h2>
+            <p>
+                Now with the DQN described above and the loss function defined, we can update the network weights. But which experiences do we use to update the network weights?
+                In practice, we use a replay buffer \(\mathcal{D}\) to 
+                
+                <ul>
+                    <li> Store past experiences (s, a, r, s') in a replay buffer so they can be resused </li>
+                    <li> Sample a batch of experiences from the buffer to update the network weights</li>
+                    <li> Breaking the temporal correlation of consecutive experiences </li>
+                </ul>
+
+                Without a replay buffer, we can only learn from each experience once which would be very inefficient and slow down the learning process. 
+                Additionally, being limited to updating the network weights using only the most recent experience would cause the network to overfit to the most recent experiences.
+                
+                In the loss function above, \(\mathcal{D}\) represents this replay buffer of past experiences.
+            </p>
+
+            <h3 id="prioritized-experience-replay">Prioritized Experience Replay (PER)</h3>
+            <p>
+                Standard experience replay samples experiences uniformly at random from the replay buffer. However, not all experiences are equally valuable for learning. <strong>Prioritized Experience Replay (PER)</strong> addresses this by sampling experiences with probability proportional to their TD error, prioritizing experiences that the agent can learn more from.
+            </p>
+
+            <p>
+                <strong>Motivation:</strong> The <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Temporal-Difference (TD) error measures the difference between the predicted Q-value and the target Q-value. It indicates how wrong the current estimate is and how much the network needs to learn from this experience.">TD error</span> <span class="td-error-math">\(|r + \gamma \max_{a'} Q(s', a'; \theta^-) - Q(s, a; \theta)|\)</span> measures how "surprising" or "unexpected" an experience is. A large TD error indicates that the current Q-value estimate is far from what it should be, meaning the agent has more to learn from this experience. Conversely, experiences with small TD errors are already well-learned and provide less new information.
+            </p>
+
+            <p>
+                In standard experience replay, the agent might repeatedly sample experiences it already knows well (low TD error) while rarely sampling experiences it needs to learn from (high TD error). This is inefficient—the agent wastes computation on experiences that don't improve its understanding.
+            </p>
+
+            <p>
+                <strong>How PER works:</strong> Instead of uniform sampling, PER assigns each experience a priority \(p_i\) based on its TD error:
+                \[
+                    p_i = |\delta_i| + \epsilon
+                \]
+                where \(\delta_i\) is the TD error for experience \(i\), and \(\epsilon\) is a small positive constant to ensure all experiences have a non-zero probability of being sampled. Experiences are then sampled with probability:
+                \[
+                    P(i) = \frac{p_i^\alpha}{\sum_k p_k^\alpha}
+                \]
+                where \(\alpha\) controls how much prioritization is used (\(\alpha = 0\) gives uniform sampling, \(\alpha = 1\) gives full prioritization).
+            </p>
+
+            <p>
+                <strong>Importance sampling correction:</strong> Since we're changing the sampling distribution, we need to correct for the bias this introduces. 
+                PER uses 
+                <span class="term-highlight" data-bs-toggle="tooltip" data-bs-placement="top" title="Importance sampling is a technique used to correct for bias when sampling from a different distribution than the one used during training. In PER, we sample transitions based on their TD error (prioritized distribution) instead of uniformly (original distribution), which introduces bias. Importance sampling weights correct this bias by reweighting the updates to account for the difference between the two distributions.">importance sampling</span> weights:
+                \[
+                    w_i = \left( \frac{1}{N} \cdot \frac{1}{P(i)} \right)^\beta
+                \]
+                where \(N\) is the buffer size and \(\beta\) controls the amount of correction (\(\beta = 1\) fully corrects for the bias). Note that more important samples (high priority \(P(i)\)) actually receive <em>lower</em> weights because they're sampled more frequently—we downweight each occurrence to correct for over-representation and maintain unbiased learning. These weights are normalized and used to scale the TD error in the loss function.
+            </p>
+
+            <p>
+                <strong>Benefits of PER over standard experience replay:</strong>
+            </p>
+            <ul>
+                <li><strong>Faster learning:</strong> By focusing on experiences with high TD error, the agent learns more efficiently</li>
+                <li><strong>Handles rare events:</strong> Important but infrequent experiences (like successfully avoiding a difficult obstacle) are more likely to be sampled and learned from</li>
+            </ul>
+
+            <p>
+                For the Dino game, PER is beneficial because:
+            </p>
+            <ul>
+                <li>The agent encounters many similar "clear path" states that have low TD error and don't need frequent replay</li>
+                <li>Critical moments (like successfully jumping over obstacles or failing to jump) have high TD error and benefit from prioritized replay</li>
+                <li>As the game speeds up, the agent needs to quickly learn from mistakes, which PER facilitates by ensuring high-error experiences are replayed more often</li>
+            </ul>
+
+            <h2 id="dqn-results">Results</h2>
+            <p class="lead">
+                The agent was trained for 700 episodes using Double Dueling DQN with Prioritized Experience Replay.
+                Evaluation runs every 10 episodes; the plots below show training dynamics through episode 700.
+            </p>
+
+            <figure>
+                <img src="images/eval_reward.png" alt="Evaluation mean reward vs training episode" class="img-fluid">
+                <figcaption>
+                    <strong>Figure 4:</strong> Evaluation mean reward vs training episode. The agent reaches a peak eval reward of ~100 at episode 700, though performance is highly variable throughout training.
+                </figcaption>
+            </figure>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/train_reward_ma10.png" alt="Training reward moving average" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 5:</strong> 10-episode moving average of training reward.
+                        </figcaption>
+                    </figure>
+                </div>
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/train_loss.png" alt="Training loss vs episode" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 6:</strong> Training loss vs episode. Loss drops quickly early on, then rises as the agent encounters harder game states.
+                        </figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/train_epsilon.png" alt="Epsilon decay vs episode" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 7:</strong> Epsilon-greedy exploration rate \(\epsilon\) vs training episode.
+                        </figcaption>
+                    </figure>
+                </div>
+                <div class="col-md-6">
+                    <figure>
+                        <img src="images/train_beta.png" alt="PER beta annealing vs episode" class="img-fluid">
+                        <figcaption>
+                            <strong>Figure 8:</strong> PER importance-sampling exponent \(\beta\) vs training episode.
+                        </figcaption>
+                    </figure>
+                </div>
+            </div>
+
+            <p>
+                <strong>\(\epsilon\) (exploration):</strong> In epsilon-greedy action selection, \(\epsilon\) is the probability of taking a random action instead of the greedy Q-max action. It linearly decays from 1.0 to 0.05 over the first ~200 episodes, then stays at the minimum for the remaining ~70% of training. This is likely too aggressive for a 700-episode run, since the agent stops exploring early while eval reward is still highly variable.
+            </p>
+            <p>
+                <strong>\(\beta\) (PER correction):</strong> \(\beta\) anneals from 0.4 toward 1.0 to correct for the bias introduced by prioritized sampling (see PER section above). It reaches 1.0 by episode ~90 and stays there for the rest of training. Full correction for most of training is fine, but a slower schedule stretched toward episode 700 would keep stronger prioritization during the noisier early phase.
+            </p>
+
+            <h3 id="agent-rollouts">Agent Rollouts</h3>
+            <p>
+                Evaluation rollouts from episode 700. The first video shows the raw captured frames, the second is what the agent sees after preprocessing the video frames.
+            </p>
+
+            <div class="rl-video-grid row row-cols-1 g-3 my-4" aria-label="Dino game evaluation rollouts">
+                <div class="col">
+                    <figure class="mb-0">
+                        <figcaption class="small text-muted mb-2">Episode 700 (Raw) </figcaption>
+                        <video class="w-100 rounded border" autoplay loop controls muted playsinline preload="metadata">
+                            <source src="./videos/eval_700.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </figure>
+                </div>
+                <div class="col">
+                    <figure class="mb-0 rl-video-compact">
+                        <figcaption class="small text-muted mb-2"> Episode 700 (Processed) </figcaption>
+                        <video class="w-100 rounded border" autoplay loop controls muted playsinline preload="metadata">
+                            <source src="./videos/eval_700_raw.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </figure>
+                </div>
+            </div>
+
+            <p>
+                As you can see, the agent is able to time its jumps over the obstacles and survive for a long time, even as the game speeds up. It even learns to jump over the flying pterodactyls which only appear in the later stages of the game. 
+            </p>
+
+        </section>
+
+
+    </main>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const tocToggle = document.getElementById('toc-toggle');
+            const tocContent = document.getElementById('toc-content');
+            
+            if (tocToggle && tocContent) {
+                tocToggle.addEventListener('click', function() {
+                    tocContent.classList.toggle('show');
+                    this.classList.toggle('collapsed');
+                });
+            }
+
+            // Highlight current section in TOC as user scrolls
+            const tocLinks = Array.from(document.querySelectorAll('.toc-nav a[href^="#"]'));
+            const tocTargets = tocLinks
+                .map((link) => {
+                    const id = link.getAttribute('href').slice(1);
+                    const element = document.getElementById(id);
+                    return element ? { link, element } : null;
+                })
+                .filter(Boolean);
+
+            function updateActiveTocLink() {
+                if (!tocTargets.length) return;
+
+                const scrollPosition = window.scrollY + 140;
+                let active = tocTargets[0];
+
+                tocTargets.forEach((entry) => {
+                    if (entry.element.offsetTop <= scrollPosition) {
+                        active = entry;
+                    }
+                });
+
+                tocLinks.forEach((link) => link.classList.remove('toc-active'));
+                active.link.classList.add('toc-active');
+            }
+
+            window.addEventListener('scroll', updateActiveTocLink, { passive: true });
+            window.addEventListener('resize', updateActiveTocLink);
+            updateActiveTocLink();
+            
+            // Game iframe active state handling
+            const gameContainer = document.getElementById('game-container');
+            const gameIframe = document.getElementById('game-iframe');
+            
+            if (gameContainer && gameIframe) {
+                // Add active class when clicking on the container
+                gameContainer.addEventListener('click', function() {
+                    this.classList.add('active');
+                    // Focus the iframe
+                    gameIframe.focus();
+                });
+                
+                // Remove active class when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!gameContainer.contains(e.target)) {
+                        gameContainer.classList.remove('active');
+                    }
+                });
+                
+                // Handle iframe focus (when user clicks inside the iframe)
+                gameIframe.addEventListener('load', function() {
+                    try {
+                        // Try to detect focus on iframe (limited by cross-origin restrictions)
+                        this.contentWindow.addEventListener('focus', function() {
+                            gameContainer.classList.add('active');
+                        });
+                    } catch (e) {
+                        // Cross-origin restrictions may prevent this
+                    }
+                });
+            }
+            
+            // Initialize Bootstrap tooltips
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+    
+</body>
+
+</html>
