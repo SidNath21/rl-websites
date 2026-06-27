@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Offline Reinforcement Learning — Berkeley Deep RL HW5</title>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script>
+        window.MathJax = {
+            loader: { load: ['[tex]/color'] },
+            tex: {
+                packages: { '[+]': ['color'] }
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-4bw+/aepP/YC94hEpVNVgiZdgIC5+VKNBQNGCHeKRQN+PtmoHDEXuppvnDJzQIu9" crossorigin="anonymous">
+
+    <link href="./style.css" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-HwwvtgBNo3bZJJLYd8oVXjrBZt8cqVSpeBNS5n7C8IVInixGAoxmnlMuBnhbgrkm"
+        crossorigin="anonymous"></script>
+
+</head>
+
+<body>
+
+    <header class="blog-header">
+        <div class="container">
+            <a href="http://sidnath21.github.io" class="blog-logo">sidnath21.github.io</a>
+            <nav>
+                <ul class="blog-nav">
+                    <li><a href="https://sidnath21.github.io/#projects">Projects</a></li>
+                    <li><a href="https://sidnath21.github.io/#about">About</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="blog-container">
+
+        <h1 class="blog-title">Offline Reinforcement Learning</h1>
+        <div class="blog-meta">
+            <span>Date: June 2026</span> |
+            <span>Author: Siddharth Nath</span> |
+            <span>Email: sidnath21@gmail.com</span>
+        </div>
+
+        <div class="toc-container">
+            <div class="toc-toggle" id="toc-toggle">
+                <span class="chevron">▼</span>
+                <span>Table of Contents</span>
+            </div>
+            <div class="toc-content show" id="toc-content">
+                <ul class="toc-nav">
+                    <li>
+                        <a href="#overview">Overview</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#overview-objective">Objective</a></li>
+                            <li class="toc-sub-item"><a href="#overview-architecture">Architecture</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#theory">Theory</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#theory-background">Offline RL background</a></li>
+                            <li class="toc-sub-item"><a href="#theory-sacbc">SAC + BC</a></li>
+                            <li class="toc-sub-item"><a href="#theory-iql">Implicit Q-Learning</a></li>
+                            <li class="toc-sub-item"><a href="#theory-flow">Flow policies and FQL</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#implementation">Implementation</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#implementation-sacbc">SAC + BC</a></li>
+                            <li class="toc-sub-item"><a href="#implementation-iql">IQL</a></li>
+                            <li class="toc-sub-item"><a href="#implementation-fql">FQL</a></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <a href="#training-results">Training results</a>
+                        <ul class="toc-nav">
+                            <li class="toc-sub-item"><a href="#results-sacbc">Q1: SAC + BC</a></li>
+                            <li class="toc-sub-item"><a href="#results-iql">Q2: IQL</a></li>
+                            <li class="toc-sub-item"><a href="#results-fql">Q3: FQL</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <section id="overview" class="blog-section">
+            <h1>Overview</h1>
+
+            
+            <p class="lead">
+                In this project, I implemented three offline RL algorithms — <strong>SAC + BC</strong>,
+                <strong>Implicit Q-Learning (IQL)</strong>, and <strong>Flow Q-Learning (FQL)</strong> — on
+                continuous-control tasks from
+                <a href="https://github.com/seohongpark/ogbench" target="_blank" rel="noopener noreferrer">OGBench</a>.
+            </p>
+
+            <p> Here are some example rollouts from the models I trained: </p>
+            <div class="rl-video-grid row row-cols-1 row-cols-md-2 g-2 my-2" aria-label="Evaluation rollouts">
+                <div class="col">
+                    <figure class="mb-0">
+                        <figcaption class="small text-muted mb-2">cube-single-play</figcaption>
+                        <video class="w-100 rounded border" autoplay loop controls muted playsinline preload="metadata">
+                            <source src="./videos/cube.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </figure>
+                </div>
+                <div class="col">
+                    <figure class="mb-0">
+                        <figcaption class="small text-muted mb-2">antsoccer-arena-navigate</figcaption>
+                        <video class="w-100 rounded border" autoplay loop controls muted playsinline preload="metadata">
+                            <source src="./videos/antsoccer.mp4" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                    </figure>
+                </div>
+            </div>
+
+            <h2 id="overview-objective">What is Offline RL?</h2>
+            <p>
+                In offline RL, we are given a static dataset \(\mathcal{D} = \{(s, a, r, s')\}\), and we must learn a policy that maximizes expected return without querying the
+                environment during training. The main challenge with this is the <em>distribution shift</em>: the learned policy
+                can end up visiting states and taking actions that were poorly covered in the dataset, which can cause Q-function
+                overestimation and unstable policy updates. 
+            </p>
+
+            <h3> Behavioral Cloning vs. Offline RL </h3>
+            <p>
+                Although both Behavioral Cloning (Imitation Learning) and Offline RL learn from a fixed dataset of transitions, they are solving different problems.
+                Behavioral Cloning ignores rewards and simply fits \(\pi(a \mid s)\) to a dataset of (\(s, a\)) pairs via supervised learning. It is just imitating the behavior of the dataset.
+                However, Offline RL aims to learn a policy that maximizes expected return from the data, while being careful to stay close to the data distribution.
+            <p>
+                The three algorithms tackle this problem in different ways:
+            </p>
+            <ul>
+                <li><strong>SAC + BC</strong> adds an explicit behavioral-cloning penalty to a Soft Actor-Critic policy loss to keep the policy close to dataset actions.</li>
+                <li><strong>IQL</strong> uses expectile regression to estimate a value function without querying out-of-distribution actions. It then extracts a policy via advantage-weighted regression.</li>
+                <li><strong>FQL</strong> replaces the unimodal Gaussian policy with an expressive flow policy, and it uses a one-step distillation policy to avoid backpropagation through time during Q maximization.</li>
+            </ul>
+
+            <h2 id="overview-architecture">Architecture</h2>
+            <p>
+                The training loop is the standard offline actor-critic pattern. Each gradient step:
+            </p>
+            <ol>
+                <li><strong>Sample a batch</strong> of transitions from the offline replay buffer.</li>
+                <li><strong>Update critics</strong> (and value function for IQL) with a Bellman backup.</li>
+                <li><strong>Update the policy</strong> with algorithm-specific objectives (BC regularization, Advantage Weighted Regression, or flow distillation).</li>
+                <li><strong>Soft-update target networks</strong> via Polyak averaging.</li>
+            </ol>
+            <p>
+                <strong>Networks.</strong> All algorithms use twin Q-networks (<code>EnsembleCritic</code>), each
+                containing 4 hidden layers of size 256. 
+                <br>
+                SAC + BC and IQL use a Gaussian policy (<code>Policy</code>) while FQL uses a vector-field flow policy (<code>VectorFieldPolicy</code>) for
+                behavioral cloning and a deterministic one-step policy (<code>DeterministicPolicy</code>) for
+                actor-critic updates.
+            </p>
+            <p>
+                <strong>Evaluation.</strong> Every 100k training steps, the agent is rolled out in the environment
+                for 50 episodes and we log <code>eval/success_rate</code>. Training runs for 1M gradient steps with
+                batch size 256.
+            </p>
+        </section>
+
+        <section id="theory" class="blog-section">
+            <h1>Theory</h1>
+
+            <h2 id="theory-background">Offline RL background</h2>
+            <p>
+                One approach for offline RL is to regularize the learned policy by adding a behavioral
+                cloning (BC) term to the policy loss of an existing off-policy algorithm (e.g. DDPG, TD3, or SAC).
+                Regularization ensures the policy does not deviate too far from the dataset's action distribution. This helps mitigate the
+                distribution shift problem and allows existing off-policy RL algorithms to be used in offline settings.
+            </p>
+            <blockquote class="callout callout-info">
+                <strong>Distribution shift:</strong> When a learned policy \(\pi\) selects actions \(a \sim \pi(\cdot \mid s)\)
+                that differ from those in \(\mathcal{D}\), the Q-function must extrapolate to unseen \((s, a)\) pairs.
+                Overestimation at these OOD actions can cause the policy to become unstable and diverge from the data distribution.
+            </blockquote>
+
+            <h2 id="theory-sacbc">SAC + BC</h2>
+            <p>
+                SAC + BC trains two Q-functions \(Q_1, Q_2\), a Gaussian policy \(\pi\), and a learnable entropy
+                coefficient \(\beta > 0\).
+            </p>
+
+            <h3>Learning Q-functions</h3>
+            <p>Q-functions minimize the Bellman error (entropy term is not included):</p>
+            $$
+            L(Q) = \sum_{i=1}^{2} \mathbb{E}\bigl[(Q_i(s, a) - y)^2\bigr], \quad
+            y = r + \gamma \cdot \frac{1}{2}\sum_{j=1}^{2} \bar{Q}_j(s', a')
+            $$
+            <p>
+                \(\bar{Q}_1, \bar{Q}_2\) are target networks updated with
+                <span class="term-highlight math-tooltip" tabindex="0" data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-trigger="hover focus"
+                    data-math-tooltip="Soft weight update each step: \(\bar\theta \leftarrow (1-\tau)\bar\theta + \tau\theta\), with small \(\tau\) (e.g. \(0.005\)).">Polyak averaging</span>.
+                Unlike standard SAC, the
+                backup uses the <em>average</em> of the two target Q values rather than the minimum, which often works
+                better in practice for offline settings.
+            </p>
+
+            <h3>Learning the policy</h3>
+            <p>The policy minimizes:</p>
+            $$
+            L(\pi) = \mathbb{E}\left[-\frac{1}{2}\sum_{i=1}^{2} Q_i(s, a^\pi)
+            + \frac{\alpha}{|\mathcal{A}|}\|a - a^\pi\|_2^2
+            + \beta \log \pi(a^\pi \mid s)\right]
+            $$
+            <ul>
+                <li>The first term maximizes Q values.</li>
+                <li>The second term regularizes the policy toward dataset actions (BC).</li>
+                <li>The third term maximizes policy entropy.</li>
+            </ul>
+            <p>
+                The main difference from SAC is the additional BC term. Like SAC, the policy is trained via the
+                reparameterization trick.
+            </p>
+
+            <h3>Learning the entropy coefficient</h3>
+            <p>\(\beta\) is trained via
+                <span class="term-highlight math-tooltip" tabindex="0" data-bs-toggle="tooltip" data-bs-placement="top"
+                    data-bs-trigger="hover focus"
+                    data-math-tooltip="Learns \(\beta\) as a Lagrange multiplier on entropy. Ascent on \(\beta\) enforces \(\mathbb{E}[-\log\pi(a|s)] \approx \bar H\): \(\beta \leftarrow \beta + \eta\,\mathbb{E}[-\log\pi(a|s) - \bar H]\).">dual gradient descent</span>
+                to match a target entropy \(\bar{H}\):</p>
+            $$
+            L(\beta) = \mathbb{E}\bigl[\beta \cdot (-\log \pi(a^\pi \mid s) - \bar{H})\bigr]
+            $$
+            <p>
+                In practice, \(\bar{H} = -|\mathcal{A}|/2\) where \(|\mathcal{A}|\) is the action dimension.
+            </p>
+            <blockquote class="callout callout-key">
+                <strong>Key hyperparameter: \(\alpha\).</strong> The BC coefficient \(\alpha\) is the most important
+                hyperparameter in SAC + BC. Performance is highly sensitive to its choice: too small and the policy
+                drifts OOD; too large and it collapses to pure behavioral cloning.
+            </blockquote>
+
+            <h2 id="theory-iql">Implicit Q-Learning</h2>
+            <p>
+                SAC + BC updates the policy by maximizing \(Q(s, a)\) at actions
+                sampled from the current policy. However, in offline RL, those actions are often
+                <em>out of distribution</em> relative to \(\mathcal{D}\). This causes the critic to extrapolate which can
+                overestimate and lead to unstable updates.
+            </p>
+            <p>
+                Additionally, the Bellman update takes a maximum over actions,
+                \(y = r + \gamma \max_a Q(s', a)\), which means querying \(Q\) with
+                actions that may never appear in the dataset. Here is how IQL avoids these issues:
+            </p>
+            <ol>
+                <li><strong>Learn \(V(s)\) with expectile regression</strong> so the value target uses only
+                    \((s, a)\) pairs from \(\mathcal{D}\). Instead of explicitly taking the maximum over actions,
+                    expectile regression pushes \(V(s)\) toward the high \(Q(s,a)\) values among dataset actions
+                    at that state</li>
+                <li><strong>Extract \(\pi\)</strong> with advantage-weighted regression: reweight the BC objective
+                    toward dataset actions with high \(Q(s,a) - V(s)\), without sampling new actions from \(\pi\)
+                    for the critic.</li>
+            </ol>
+            <p>
+                Neither step requires evaluating \(Q\) on actions outside the data distribution, which is the main
+                motivation for IQL over SAC + BC.
+            </p>
+            <p>
+                Overall, IQL learns a value function via <strong>expectile regression</strong> and extracts a
+                policy via <strong>advantage-weighted regression </strong>. IQL trains two Q-functions
+                \(Q_1, Q_2\), a value function \(V\), and a Gaussian policy \(\pi\).
+            </p>
+
+            <h3>Q and value losses</h3>
+            $$
+            L(Q) = \sum_{i=1}^{2} \mathbb{E}_{(s,a,r,s') \sim \mathcal{D}}
+            \bigl[(Q_i(s,a) - (r + \gamma V(s')))^2\bigr]
+            $$
+            $$
+            L(V) = \mathbb{E}_{(s,a) \sim \mathcal{D}}
+            \bigl[l_2^\tau(V(s) - \min_{i=1,2} \bar{Q}_i(s,a))\bigr]
+            $$
+            <p>
+                where \(l_2^\tau(x) = |\tau - \mathbb{1}(x > 0)| \cdot x^2\) is the expectile loss with
+                \(\tau \in (0.5, 1]\), and \(\bar{Q}_1, \bar{Q}_2\) are target networks.
+            </p>
+            <h3>Policy loss (advantage-weighted regression)</h3>
+            $$
+            L(\pi) = \mathbb{E}_{(s,a) \sim \mathcal{D}}
+            \bigl[-\min(e^{\alpha A(s,a)}, M) \log \pi(a \mid s)\bigr], \quad
+            A(s,a) = \min_{i=1,2} Q_i(s,a) - V(s)
+            $$
+            <p>
+                \(\alpha > 0\) is an inverse temperature controlling the strength of advantage weighting, and
+                \(M > 0\) clips the weights for stability.
+            </p>
+            <blockquote class="callout callout-info">
+                <strong>Why weight by advantage?</strong> Vanilla Behavioral Cloning treats every dataset action equally, so
+                \(\pi\) imitates suboptimal behavior as much as good behavior. The advantage
+                \(A(s,a) = Q(s,a) - V(s)\) measures how much better action \(a\) is than others at that state.
+            </blockquote>
+            <blockquote class="callout callout-key">
+                <strong>Key hyperparameters: \(\tau\) and \(\alpha\).</strong>
+                \(\tau\) interpolates between SARSA (\(\tau = 0.5\)) and the Bellman optimality operator
+                (\(\tau \to 1\)). \(\alpha\) interpolates between behavioral cloning (\(\alpha = 0\)) and greedy
+                Q maximization (\(\alpha \to \infty\)). While IQL has one more main hyperparameter than SAC+BC, it is
+                generally less sensitive, making it easier to tune in practice.
+            </blockquote>
+
+            <h2 id="theory-flow">Flow policies and FQL</h2>
+            <p>
+                Both SAC + BC and IQL learn a unimodal Gaussian policy. In practice, more expressive policies are
+                beneficial for two reasons:
+            </p>
+            <ol>
+                <li>When the behavior policy is diverse and multimodal, a unimodal Gaussian may not represent multiple modes in the data.</li>
+                <li>For offline-to-online finetuning, an expressive policy can improve exploration by capturing multiple modes from the offline dataset.</li>
+            </ol>
+
+            <h3>FBRAC (motivation)</h3>
+            <p>
+                Flow behavior-regularized actor-critic (FBRAC) extends SAC + BC to flow policies by replacing the BC
+                loss with a flow-matching loss. A time-dependent vector field \(v\) defines a flow policy \(\pi_v\)
+                obtained by solving an ODE with the Euler method, transforming a standard Gaussian into the target
+                action distribution.
+            </p>
+            <p>The flow policy loss interpolates between Q maximization and behavioral flow matching:</p>
+            $$
+            L(v) = \mathbb{E}\left[-\frac{1}{2}\sum_{i=1}^{2} Q_i(s, \pi_v(s,z))
+            + \frac{\alpha}{|\mathcal{A}|}\|v(s, \tilde{a}, t) - (a - z)\|_2^2\right],
+            \quad \tilde{a} = (1-t)z + ta
+            $$
+
+            
+            <blockquote class="callout callout-caution">
+                <strong>Problem with FBRAC.</strong> The Q term uses \(\pi_v(s, z)\), which requires integrating
+                \(v\) over multiple Euler steps. Gradients must then backpropagate through the entire loop
+                (<strong>BPTT</strong>) — expensive and unstable.
+            </blockquote>
+
+            <p class="code-caption"> Euler's Method </p>
+            <pre class="code-snippet"><code>x = z
+for step in range(flow_steps):
+    x = x + dt * v(s, x, step / flow_steps)   # Euler: noise z → action
+action = x
+loss = -Q(s, action).mean() + alpha * flow_loss
+loss.backward()                               # gradients through all flow_steps</code></pre>
+            <p>
+                FQL avoids this by training a separate one-step policy \(\pi_\omega\) for Q maximization, so
+                Q gradients never pass through the ODE.
+            </p>
+
+            <h3>Flow Q-Learning (FQL)</h3>
+            <p>
+                <a href="https://seohong.me/projects/fql/" target="_blank" rel="noopener noreferrer">FQL</a>
+                addresses BPTT by training an additional <em>one-step</em> policy \(\pi_\omega\) that maps
+                \((s, z) \mapsto a\) without iterative ODE integration. FQL interpolates between Q maximization and
+                <em>behavioral distillation</em> from the flow policy, rather than direct flow matching in the
+                actor-critic loss.
+            </p>
+
+            <figure class="text-center my-4">
+                <img src="https://seohong.me/projects/fql/assets/fql.png"
+                    alt="FQL architecture diagram" style="max-width: 600px; margin: 0 auto;">
+                <figcaption>FQL trains a behavioral flow policy \(\pi_v\) and a one-step policy \(\pi_\omega\).
+                    Q maximization uses only \(\pi_\omega\), avoiding BPTT. (Source: https://seohong.me/projects/fql/)</figcaption>
+            </figure>
+
+            <p>FQL trains:</p>
+            <ul>
+                <li>Two Q-functions \(Q_1, Q_2\)</li>
+                <li>A behavioral flow policy \(\pi_v\) (vector field \(v\))</li>
+                <li>A one-step policy \(\pi_\omega\) (standard NN)</li>
+            </ul>
+
+            <p><strong>Flow policy</strong> — pure behavioral cloning via flow matching:</p>
+            $$
+            L(v) = \mathbb{E}\left[\frac{1}{|\mathcal{A}|}\|v(s, \tilde{a}, t) - (a - z)\|_2^2\right],
+            \quad \tilde{a} = (1-t)z + ta
+            $$
+
+            <p><strong>Q-functions</strong> — standard Bellman loss using the one-step policy for next actions:</p>
+            $$
+            L(Q) = \sum_{i=1}^{2} \mathbb{E}\bigl[(Q_i(s,a) - y)^2\bigr], \quad
+            y = r + \gamma \cdot \frac{1}{2}\sum_{j=1}^{2} \bar{Q}_j(s', \pi_\omega(s', z))
+            $$
+
+            <p><strong>One-step policy</strong> — Q maximization + distillation (gradients do <em>not</em> flow through \(\pi_v\)):</p>
+            $$
+            L(\pi_\omega) = \mathbb{E}\left[-\frac{1}{2}\sum_{i=1}^{2} Q_i(s, \pi_\omega(s,z))
+            + \frac{\alpha}{|\mathcal{A}|}\|\pi_\omega(s,z) - \pi_v(s,z)\|_2^2\right]
+            $$
+            <p>
+                Since Q maximization only involves \(\pi_\omega\), FQL is free from BPTT. The one-step policy is
+                conditioned on the same noise variable \(z\) as the flow policy, so it can still represent multimodal
+                distributions.
+            </p>
+        </section>
+
+        <section id="implementation" class="blog-section">
+            <h1>Implementation</h1>
+
+            <div class="accordion mb-4" id="implementation-accordion">
+
+                <div class="accordion-item" id="implementation-sacbc">
+                    <h2 class="accordion-header" id="implementation-sacbc-heading">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#implementation-sacbc-panel" aria-expanded="false"
+                            aria-controls="implementation-sacbc-panel">
+                            SAC + BC
+                        </button>
+                    </h2>
+                    <div id="implementation-sacbc-panel" class="accordion-collapse collapse"
+                        aria-labelledby="implementation-sacbc-heading">
+                        <div class="accordion-body text-start">
+                            <p>
+                                The actor loss combines Q maximization, MSE behavioral cloning toward dataset actions, and an
+                                entropy bonus weighted by the learned coefficient \(\beta\):
+                            </p>
+
+                            <p class="code-caption">Actor update (<code>sacbc_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>actor_dist = self.actor(observations)
+actor_actions = actor_dist.rsample()
+log_probs = actor_dist.log_prob(actor_actions)
+
+q_loss = -self.critic(observations, actor_actions).mean()
+bc_loss = self.alpha * ((actions - actor_actions) ** 2).mean(dim=-1).mean()
+entropy_loss = self.beta() * log_probs.mean()
+
+loss = q_loss + bc_loss + entropy_loss</code></pre>
+
+                            <p>
+                                The Q backup samples next actions from the current policy and averages the two target Q values
+                                (no entropy term in the target, unlike online SAC):
+                            </p>
+
+                            <p class="code-caption">Q update (<code>sacbc_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>with torch.no_grad():
+    actor_dist = self.actor(next_observations)
+    next_actions = actor_dist.rsample()
+    next_q = self.target_critic(next_observations, next_actions)
+    targets = rewards + self.discount * (1.0 - dones) * next_q.mean(dim=0)
+
+loss = ((q - targets) ** 2).sum()</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="accordion-item" id="implementation-iql">
+                    <h2 class="accordion-header" id="implementation-iql-heading">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#implementation-iql-panel" aria-expanded="false"
+                            aria-controls="implementation-iql-panel">
+                            IQL
+                        </button>
+                    </h2>
+                    <div id="implementation-iql-panel" class="accordion-collapse collapse"
+                        aria-labelledby="implementation-iql-heading">
+                        <div class="accordion-body text-start">
+                            <p>
+                                The expectile loss asymmetrically weights over- and under-estimation errors. When the advantage
+                                \(V(s) - Q(s,a)\) is positive (value exceeds Q), the \(\tau\) weight is larger, pushing \(V\) up
+                                toward high-Q actions without ever querying OOD actions in the backup:
+                            </p>
+
+                            <p class="code-caption">Expectile loss (<code>iql_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>@staticmethod
+def iql_expectile_loss(adv: torch.Tensor, expectile: float) -> torch.Tensor:
+    mask = (adv > 0).float()
+    return torch.abs(expectile - mask) * (adv ** 2)</code></pre>
+
+                            <p>
+                                The actor uses clipped exponential advantage weights for advantage-weighted regression. Actions with higher advantage
+                                (relative to \(V\)) receive larger weight in the supervised log-likelihood objective:
+                            </p>
+
+                            <p class="code-caption">Advantage-weighted regression (<code>iql_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>q = self.critic(observations, actions)
+advantage = q.min(dim=0).values - self.value(observations)
+
+M = 100.0
+weights = torch.minimum(
+    torch.exp(self.alpha * advantage),
+    torch.tensor(M, device=advantage.device),
+)
+loss = -(weights * dist.log_prob(actions)).sum()</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="accordion-item" id="implementation-fql">
+                    <h2 class="accordion-header" id="implementation-fql-heading">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#implementation-fql-panel" aria-expanded="false"
+                            aria-controls="implementation-fql-panel">
+                            FQL
+                        </button>
+                    </h2>
+                    <div id="implementation-fql-panel" class="accordion-collapse collapse"
+                        aria-labelledby="implementation-fql-heading">
+                        <div class="accordion-body text-start">
+                            <p>
+                                The behavioral flow policy is trained with standard flow matching. A random noise sample \(z\) and
+                                interpolation time \(t \sim \mathcal{U}[0,1]\) define the interpolated action
+                                \(\tilde{a} = (1-t)z + ta\); the vector field is trained to predict the velocity \(a - z\):
+                            </p>
+
+                            <p class="code-caption">Flow-matching BC loss (<code>fql_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>noise = torch.randn_like(actions)
+t = torch.rand(actions.shape[0], 1, device=actions.device)
+
+a_interp = (1 - t) * noise + t * actions
+target_velocity = actions - noise
+predicted_velocity = self.bc_actor(observations, a_interp, t)
+loss = ((predicted_velocity - target_velocity) ** 2).mean()</code></pre>
+
+                            <p>
+                                The one-step policy distills from the flow policy (with <code>torch.no_grad()</code> on BC actions)
+                                while also maximizing Q. BC actions are computed by Euler integration over <code>flow_steps</code>
+                                steps:
+                            </p>
+
+                            <p class="code-caption">One-step actor update (<code>fql_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>noise = torch.randn(actions.shape[0], self.action_dim, device=actions.device)
+one_step_actions = self.onestep_actor(observations, noise)
+
+with torch.no_grad():
+    bc_actions = self.get_bc_action(observations, noise)
+
+distill_loss = self.alpha * ((one_step_actions - bc_actions) ** 2).mean()
+clipped_actions = torch.clamp(one_step_actions, -1, 1)
+q_loss = -self.critic(observations, clipped_actions).sum(dim=0).mean()
+
+loss = distill_loss + q_loss</code></pre>
+
+                            <p class="code-caption">Euler ODE integration for flow policy (<code>fql_agent.py</code>)</p>
+                            <pre class="code-snippet"><code>x = noise
+dt = 1.0 / self.flow_steps
+for step in range(self.flow_steps):
+    t = step / self.flow_steps
+    t_tensor = torch.full((x.shape[0], 1), t, device=x.device)
+    velocity = self.bc_actor(observation, x, t_tensor)
+    x = x + dt * velocity
+return torch.clamp(x, -1, 1)</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+
+        <section id="training-results" class="blog-section">
+            <h1>Training results</h1>
+            <p class="lead">
+                All runs use the same seed, 1M training steps, batch size 256, and evaluate every 100k steps over 50
+                episodes
+            </p>
+
+            <h2 id="results-sacbc">SAC + BC Results</h2>
+            <p>
+                On <code>cube-single-play</code>, the final success rate varies depending on \(\alpha\):
+                60% at \(\alpha = 30\), 100% at \(\alpha = 100\), 96% at \(\alpha = 300\), and 92% at
+                \(\alpha = 1000\). Too little BC regularization (\(\alpha = 30\)) leaves the policy far from
+                optimal; too much (\(\alpha = 1000\)) slightly underperforms.
+            </p>
+
+            <p>
+                On <code>antsoccer-arena-navigate</code>, success stays low across all tested \(\alpha\) values
+                (0–12%), peaking at \(\alpha = 3\) with 12%.
+            </p>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/sacbc_cube_eval.png" class="card-img-top" alt="SAC + BC eval success rate on cube-single-play">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — cube-single-play</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/sacbc_antsoccer_eval.png" class="card-img-top" alt="SAC + BC eval success rate on antsoccer-arena-navigate">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — antsoccer-arena-navigate</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+            <h2 id="results-iql">IQL Results</h2>
+            <p>
+                IQL is run with fixed expectile \(\tau = 0.9\) and varying inverse temperature
+                \(\alpha \in \{1, 3, 10\}\). On <code>cube-single-play</code>, all three settings perform
+                strongly: 80% (\(\alpha = 1\)), 72% (\(\alpha = 3\)), and 96% (\(\alpha = 10\)). 
+            </p>
+
+            <p>
+                On <code>antsoccer-arena-navigate</code>, success stays low but stable (8–20%), peaking at
+                20% with \(\alpha = 3\).
+            </p>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/iql_cube_eval.png" class="card-img-top" alt="IQL eval success rate on cube-single-play">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — cube-single-play</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/iql_antsoccer_eval.png" class="card-img-top" alt="IQL eval success rate on antsoccer-arena-navigate">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — antsoccer-arena-navigate</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 id="results-fql">FQL Results</h2>
+            <p>
+                FQL sweeps the distillation coefficient \(\alpha\) on both environments (with
+                <code>flow_steps=10</code>). On <code>cube-single-play</code>, final success ranges from
+                0% (\(\alpha = 30\)) to 100% (\(\alpha = 300\)), with 68% at \(\alpha = 100\) and 92% at
+                \(\alpha = 1000\). On <code>antsoccer-arena-navigate</code>, performance is more peaked:
+                80% at \(\alpha = 10\), versus 4% at \(\alpha = 3\) and 0% at \(\alpha = 1\) and
+                \(\alpha = 30\).
+            </p>
+
+            <div class="row g-4 mb-4">
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/fql_cube_eval.png" class="card-img-top" alt="FQL eval success rate on cube-single-play">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — cube-single-play</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card">
+                        <img src="./images/fql_antsoccer_eval.png" class="card-img-top" alt="FQL eval success rate on antsoccer-arena-navigate">
+                        <div class="card-body">
+                            <p class="card-text mb-0">Eval success rate — antsoccer-arena-navigate</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+
+            <h3>Takeaways</h3>
+            <ul>
+                <li><strong>SAC + BC</strong> is simple and effective when \(\alpha\) is tuned carefully, but performance varies across values and environments.</li>
+                <li><strong>IQL</strong> achieves competitive results with less hyperparameter sensitivity, thanks to decoupled value estimation and advantage-weighted policy extraction.</li>
+                <li><strong>FQL</strong> matches the best Gaussian-policy results while supporting multimodal flow policies, and avoids BPTT by distilling into a one-step actor for Q updates.</li>
+                <li>On <code>antsoccer-arena-navigate</code>, FQL reaches 80% at \(\alpha = 10\) which is much better than SAC + BC (12%) and IQL (20%).</li>
+            </ul>
+        </section>
+
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const tocToggle = document.getElementById('toc-toggle');
+            const tocContent = document.getElementById('toc-content');
+
+            if (tocToggle && tocContent) {
+                tocToggle.addEventListener('click', function() {
+                    tocContent.classList.toggle('show');
+                    this.classList.toggle('collapsed');
+                });
+            }
+
+            const tocLinks = Array.from(document.querySelectorAll('.toc-nav a[href^="#"]'));
+            const tocTargets = tocLinks
+                .map((link) => {
+                    const id = link.getAttribute('href').slice(1);
+                    const element = document.getElementById(id);
+                    return element ? { link, element } : null;
+                })
+                .filter(Boolean);
+
+            function updateActiveTocLink() {
+                if (!tocTargets.length) return;
+
+                const scrollPosition = window.scrollY + 140;
+                let active = tocTargets[0];
+
+                tocTargets.forEach((entry) => {
+                    if (entry.element.offsetTop <= scrollPosition) {
+                        active = entry;
+                    }
+                });
+
+                tocLinks.forEach((link) => link.classList.remove('toc-active'));
+                active.link.classList.add('toc-active');
+            }
+
+            window.addEventListener('scroll', updateActiveTocLink, { passive: true });
+            window.addEventListener('resize', updateActiveTocLink);
+            updateActiveTocLink();
+
+            document.querySelectorAll('[data-math-tooltip]').forEach(function(el) {
+                const tooltip = new bootstrap.Tooltip(el, {
+                    html: true,
+                    sanitize: false,
+                    title: function() {
+                        return el.getAttribute('data-math-tooltip');
+                    },
+                });
+                el.addEventListener('shown.bs.tooltip', function() {
+                    const tipId = el.getAttribute('aria-describedby');
+                    const tipEl = tipId ? document.getElementById(tipId) : null;
+                    if (tipEl && window.MathJax && window.MathJax.typesetPromise) {
+                        window.MathJax.typesetPromise([tipEl]);
+                    }
+                });
+            });
+
+            var tooltipTriggerList = [].slice.call(
+                document.querySelectorAll('[data-bs-toggle="tooltip"]:not([data-math-tooltip])')
+            );
+            tooltipTriggerList.map(function(tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+
+</body>
+
+</html>
